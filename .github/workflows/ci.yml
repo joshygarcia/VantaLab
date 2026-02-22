@@ -18,9 +18,6 @@ jobs:
   api:
     name: API — Lint & Test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/api
 
     steps:
       - uses: actions/checkout@v4
@@ -29,18 +26,18 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: apps/api/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - run: npm ci
 
       - name: Generate Prisma Client
-        run: npx prisma generate --schema prisma/schema.prisma
+        run: npm run prisma:generate --workspace apps/api
 
       - name: TypeScript type-check
-        run: npx tsc --noEmit
+        run: npx tsc -p apps/api/tsconfig.json --noEmit
 
       - name: Run tests
-        run: npm test
+        run: npm run test --workspace apps/api
         env:
           JWT_SECRET: ci-test-secret
           SUPABASE_URL: https://placeholder.supabase.co
@@ -50,9 +47,6 @@ jobs:
   web:
     name: Web — Build check
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
 
     steps:
       - uses: actions/checkout@v4
@@ -61,12 +55,12 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - run: npm ci
 
       - name: Next.js build
-        run: npx next build
+        run: npm run build --workspace apps/web
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-key
