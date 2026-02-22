@@ -1,0 +1,21 @@
+
+> @persona/web@0.1.0 start
+> next start -p 3000
+
+ ⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use :::3000
+    at <unknown> (Error: listen EADDRINUSE: address already in use :::3000)
+    at new Promise (<anonymous>) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}
+npm error Lifecycle script `start` failed with error:
+npm error code 1
+npm error path C:\Users\mrjos\Documents\Github\Persona\apps\web
+npm error workspace @persona/web@0.1.0
+npm error location C:\Users\mrjos\Documents\Github\Persona\apps\web
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c next start -p 3000

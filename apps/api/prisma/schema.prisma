@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model WorkflowJob {
+  id               String   @id
+  userId           String
+  workspaceId      String
+  nodeId           String
+  model            String
+  prompt           String
+  status           String
+  mediaUrl         String?
+  error            String?
+  parameters       String?
+  idempotencyKey   String?  @unique
+  requestFingerprint String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+model Workspace {
+  id               String   @id
+  userId           String
+  name             String   @default("My Workspace")
+  kieApiKey         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  provider    String   @default("kie.ai")
+  key         String   @unique
+  isActive    Boolean  @default(true)
+  usageCount  Int      @default(0)
+  lastUsedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ApiUsageLog {
+  id          String   @id @default(cuid())
+  apiKeyId    String
+  endpoint    String
+  costInCents Int      @default(0)
+  status      Int      @default(200)
+  createdAt   DateTime @default(now())
+}
+
+model UserCreditBalance {
+  userId       String              @id
+  credits      Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  transactions CreditTransaction[]
+}
+
+model CreditTransaction {
+  id                    String            @id @default(cuid())
+  userId                String
+  packageId             String
+  credits               Int
+  amountInCents         Int
+  currency              String
+  stripePaymentIntentId String            @unique
+  metadata              String?
+  processedAt           DateTime          @default(now())
+  user                  UserCreditBalance @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId, processedAt])
+}

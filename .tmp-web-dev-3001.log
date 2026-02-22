@@ -1,0 +1,14 @@
+
+> @persona/web@0.1.0 dev
+> next dev -p 3000 --port 3001
+
+   ▲ Next.js 15.2.4
+   - Local:        http://localhost:3001
+   - Network:      http://192.168.0.210:3001
+
+ ✓ Starting...
+ ✓ Ready in 1402ms
+ ○ Compiling /canvas/[id] ...
+ ✓ Compiled /canvas/[id] in 3.9s (1188 modules)
+ GET /canvas/local 200 in 4823ms
+[?25h

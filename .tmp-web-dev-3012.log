@@ -1,0 +1,27 @@
+
+> @persona/web@0.1.0 dev
+> next dev -p 3000 -p 3012
+
+   ▲ Next.js 15.2.4
+   - Local:        http://localhost:3012
+   - Network:      http://192.168.0.210:3012
+
+ ✓ Starting...
+ ✓ Ready in 1352ms
+ ○ Compiling /canvas/[id] ...
+ ✓ Compiled /canvas/[id] in 3.1s (1118 modules)
+ GET /canvas/test 200 in 3895ms
+ ✓ Compiled in 230ms (498 modules)
+ ✓ Compiled in 403ms (500 modules)
+ ✓ Compiled in 269ms (514 modules)
+ ✓ Compiled in 236ms (500 modules)
+ ✓ Compiled in 103ms (500 modules)
+ ✓ Compiled in 156ms (514 modules)
+ ✓ Compiled in 145ms (504 modules)
+npm error Lifecycle script `dev` failed with error:
+npm error code 4294967295
+npm error path C:\Users\mrjos\Documents\Github\Persona\apps\web
+npm error workspace @persona/web@0.1.0
+npm error location C:\Users\mrjos\Documents\Github\Persona\apps\web
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c next dev -p 3000 -p 3012

@@ -1,0 +1,15 @@
+
+> @persona/web@0.1.0 dev
+> next dev -p 3000 -p 3000
+
+   ▲ Next.js 15.2.4
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.0.210:3000
+
+ ✓ Starting...
+ ✓ Ready in 1493ms
+ ○ Compiling /canvas/[id] ...
+ ✓ Compiled /canvas/[id] in 3.7s (1201 modules)
+ GET / 200 in 1698ms
+ GET /canvas/local 200 in 301ms
+ GET /canvas/local 200 in 4465ms

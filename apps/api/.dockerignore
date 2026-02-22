@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output (we rebuild inside Docker)
+dist/
+
+# Environment files (secrets — never bake into images)
+.env
+.env.*
+!.env.example
+
+# Development files
+*.spec.ts
+jest.config.js
+tsconfig.spec.json
+prisma_out.txt
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore

@@ -1,0 +1,228 @@
+Persona Engine - Master Technical Specification
+
+1. Executive Summary
+
+The Persona Engine is an elite, scalable AI influencer lab and spatial workspace. It provides an infinite canvas environment designed for real-time collaborative creation. By orchestrating advanced generative models via the Kie.ai API—such as Veo 3.1 for cinematic video and Nano Banana for precise image synthesis —the platform empowers creators to design, store, and manage AI influencers. Core to the platform is its ability to maintain strict character and visual consistency across media through reusable, node-based workflows, script slicing, and pixel-referencing. Initially targeted for an internal team, the architecture is designed from day one to scale into a robust, multi-tenant SaaS application.
+
+
+2. Tech Stack Definition
+
+Frontend: Next.js (React), TypeScript, React Flow (for the infinite WebGL node canvas), Zustand (global state management), Tailwind CSS (styling).
+
+Backend: Node.js with NestJS (TypeScript-first, heavily modular), REST API paradigm.
+
+Database & Caching: * Primary DB: PostgreSQL (managed via Prisma ORM) for structured, relational SaaS data (users, billing, core entity storage).
+
+Real-Time DB: Google Cloud Firestore for instant synchronization of canvas state and node coordinates.
+
+In-Memory Cache & Queuing: Redis (utilizing BullMQ for robust asynchronous job management).
+
+Infrastructure & Hosting: Google Cloud Platform (GCP). Docker containerization deployed to Google Cloud Run (scaling to zero for cost-efficiency, scaling out for traffic spikes). GitHub Actions for CI/CD pipelines.
+
+Security & Auth: OAuth2 (Google/GitHub integration) and JWT-based session management. Role-Based Access Control (RBAC) to manage permissions between Admin and Creator tiers.
+
+3. System Architecture & Data Flow
+
+The system employs an Event-Driven, Asynchronous Pipeline to ensure the frontend infinite canvas never blocks or times out during heavy media generation tasks.
+
+Client Interaction: A user manipulates the canvas (e.g., adding a "Generate Video" node, connecting a specific visual palette). The UI updates locally while Next.js silently syncs the coordinate and property state to Cloud Firestore.
+
+Execution Request: The user triggers a workflow. The frontend sends an authenticated POST request to the NestJS API Gateway containing the workflow payload (prompts, selected models, influencer seed references).
+
+Validation & Queuing: The backend verifies JWT authenticity and checks the user's PostgreSQL record for sufficient SaaS credits. If valid, the backend creates a job in the Redis-backed BullMQ queue and immediately returns a 202 Accepted status to the client.
+
+
+Asynchronous Orchestration: A background worker service picks up the job and dispatches the request to Kie.ai (e.g., requesting a Runway Aleph generation ).
+
+
+State Resolution: Once Kie.ai completes the task and returns the media asset URL, the worker updates the corresponding node document in Firestore and decrements the user's credit balance in PostgreSQL.
+
+Real-Time Client Update: The Next.js client, actively listening to Firestore document changes, detects the newly written media URL and dynamically renders the video or image directly onto the user's canvas.
+
+4. Comprehensive File Architecture
+
+The file structure utilizes a clean, feature-based architecture to guarantee maintainability as the application scales.
+
+Plaintext
+
+
+persona-engine-monorepo/
+
+├── apps/
+
+│   ├── web/                              # Next.js Frontend Application
+
+│   │   ├── src/
+
+│   │   │   ├── app/                      # App Router (Pages, Layouts, API routes)
+
+│   │   │   │   ├── (auth)/               # Authentication views
+
+│   │   │   │   ├── canvas/[id]/          # Dynamic routing for specific workspaces
+
+│   │   │   │   └── page.tsx              # Landing page
+
+│   │   │   ├── components/               
+
+│   │   │   │   ├── canvas/               # React Flow custom nodes & edges
+
+│   │   │   │   ├── shared/               # Reusable UI (buttons, modals, tooltips)
+
+│   │   │   │   └── influencer/           # Influencer identity vault UI components
+
+│   │   │   ├── store/                    # Zustand stores (canvas state, user state)
+
+│   │   │   ├── hooks/                    # Custom React hooks (e.g., useFirestoreSync)
+
+│   │   │   └── styles/                   # Tailwind configurations and globals
+
+│   │   ├── public/                       # Static assets
+
+│   │   └── package.json
+
+│   │
+
+│   └── api/                              # NestJS Backend Application
+
+│       ├── src/
+
+│       │   ├── core/                     # Global interceptors, guards, filters
+
+│       │   ├── modules/                  # Feature modules
+
+│       │   │   ├── auth/                 # JWT strategies and session handling
+
+│       │   │   ├── users/                # User management and credit balances
+
+│       │   │   ├── workflows/            # Workflow execution logic
+
+│       │   │   ├── integrations/         # External API services (Kie.ai orchestration)
+
+│       │   │   └── queue/                # BullMQ producers and consumers
+
+│       │   ├── prisma/                   # Schema definitions and migrations
+
+│       │   ├── config/                   # Environment validation
+
+│       │   └── main.ts                   # Application bootstrap
+
+│       ├── Dockerfile                    # Container definition for Cloud Run
+
+│       └── package.json
+
+│
+
+├── packages/                             # Shared Monorepo Packages
+
+│   ├── database/                         # Shared Prisma client
+
+│   ├── types/                            # Shared TypeScript interfaces (DTOs)
+
+│   └── ui/                               # Shared design system components
+
+└── turbo.json                            # Turborepo configuration
+
+5. Core User Stories & Acceptance Criteria
+
+User Story 1: As a creator, I want to define and save a strict "Influencer Identity" (e.g., a faceless white mannequin with a core hex palette of Void Black, Electric Signal #f7da07, and Bone Matte) so that I can automatically apply it to generative nodes for visual continuity.
+
+Acceptance Criteria: User can upload seed images; user can define text-based negative prompts; user can select up to 5 strict hex color codes; system saves the entity to the vault and makes it accessible as a draggable node in the canvas.
+
+
+User Story 2: As a creator, I want to use a node-based workflow to connect a text prompt to a Nano Banana image node , and then feed that image into a Veo 3.1 video generation node, so that I can build logical generation pipelines.
+
+
+Acceptance Criteria: Nodes visually snap together; outputs map correctly to inputs; the system prevents connecting incompatible data types (e.g., routing an audio file into an image-to-image pipeline without an adapter).
+
+
+User Story 3: As a user, I want to generate 1080p cinematic video  using Kie.ai models without my browser freezing, so I can continue working on other parts of the canvas.
+
+Acceptance Criteria: Clicking "Generate" immediately places the node into a "Processing" visual state; the backend returns a 202 Accepted; the client receives the final video URL via a Firestore real-time update within 5 seconds of the worker completing the task.
+
+6. Database Schema Design
+
+This maps the relational state managed by PostgreSQL via Prisma ORM. Canvas state (X/Y coordinates, node width/height) lives in document form in Firestore.
+
+EntityAttributesTypeRelationshipsUserid, email, passwordHash, credits, tier, createdAtCore1:N with Influencer, WorkspaceWorkspaceid, userId, title, firestoreDocId, updatedAtCoreN:1 with UserInfluencerid, userId, name, seedImageUrls (Array), negativePrompt, paletteHex (Array)IdentityN:1 with User, 1:N with MediaAssetMediaAssetid, influencerId, workflowNodeId, url, type (IMAGE, VIDEO), modelUsedAssetN:1 with InfluencerTransactionid, userId, amount, creditYield, status, timestampBillingN:1 with User7. API Design Strategy
+
+Endpoint Example: Execute Node Workflow
+
+Route: POST /api/v1/workflows/execute
+
+Authentication: Requires Bearer JWT.
+
+Request Payload:
+
+JSON
+
+
+{
+
+  "workspaceId": "ws_8f7d9a",
+
+  "nodeId": "node_v31_gen_01",
+
+  "model": "veo-3.1",
+
+  "parameters": {
+
+    "prompt": "Cinematic shot in Industrial Chiaroscuro style...",
+
+    "referenceImageUrl": "https://storage.../seed_mannequin_1.png",
+
+    "aspectRatio": "16:9"
+
+  }
+
+}
+
+Expected Responses:
+
+202 Accepted: Job successfully queued.
+
+JSON
+
+
+{
+
+  "status": "processing",
+
+  "jobId": "job_99x81",
+
+  "message": "Generation queued. Awaiting asynchronous resolution."
+
+}
+
+402 Payment Required: Insufficient credits for Veo 3.1 generation.
+
+429 Too Many Requests: Rate limit exceeded for the user tier.
+
+8. Deployment, Scaling, & Security Standards
+
+Deployment Strategy
+
+Containerization: The NestJS API is packaged into a lightweight Docker image.
+
+Serverless Scaling: Deployed to Google Cloud Run. This ensures that the application scales out rapidly to handle concurrent background generation tasks and scales to zero during idle periods to eliminate unnecessary costs.
+
+CI/CD: GitHub Actions triggers on push to the main branch, running automated Jest tests, building the Docker image, pushing to Google Artifact Registry, and deploying the new revision to Cloud Run.
+
+Scaling & Bottleneck Management
+
+Horizontal Scaling: Cloud Run natively handles HTTP request scaling. BullMQ workers will be deployed as a separate, horizontally scaled Cloud Run service specifically dedicated to churning through the Redis queue.
+
+Database Indexing: PostgreSQL indexes applied to userId and workspaceId for rapid querying. Firestore natively indexes all document fields.
+
+Asset Delivery: All generated media from Kie.ai is fetched and uploaded to a global CDN (e.g., Google Cloud Storage bucket with Cloud CDN) to ensure rapid media playback in the infinite canvas regardless of the user's geographic location.
+
+Security Best Practices (Zero-Trust Approach)
+
+Rate Limiting & Throttling: strict IP and User-ID based rate limiting on the API Gateway to prevent malicious API spamming.
+
+Kie.ai Credit Protection: API keys for Kie.ai are stored exclusively in GCP Secret Manager. The Next.js client never communicates directly with Kie.ai. All requests route through the backend to validate user credits before spending actual Kie.ai API credits.
+
+Input Validation: Strict validation using DTOs (Data Transfer Objects) and class-validator in NestJS to prevent injection attacks and ensure prompt payloads are sanitized.
+
+Headers: Implementation of strict CORS policies (only allowing the Next.js production domain) and Content Security Policy (CSP) headers via Helmet.
+
+

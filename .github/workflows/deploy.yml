@@ -1,0 +1,130 @@
+# ─────────────────────────────────────────────────────────────────────
+# Deploy — Builds and deploys to Google Cloud Run on merge to main
+# ─────────────────────────────────────────────────────────────────────
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false # Never cancel an in-progress deploy
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: us-east1
+  API_SERVICE_NAME: persona-api
+  ARTIFACT_REGISTRY: us-east1-docker.pkg.dev
+
+jobs:
+  # ── Deploy API to Cloud Run ─────────────────────────────────────
+  deploy-api:
+    name: Deploy API → Cloud Run
+    runs-on: ubuntu-latest
+    needs: [] # Add 'ci' job dependency if ci.yml is separate
+    permissions:
+      contents: read
+      id-token: write # Required for Workload Identity Federation
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Authenticate with Google Cloud using Workload Identity Federation
+      # (more secure than service account keys — no long-lived credentials)
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Prisma migrations
+        run: npm run prisma:migrate:deploy --workspace apps/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
+
+      - name: Build & push Docker image
+        working-directory: apps/api
+        run: |
+          IMAGE="${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/persona/${{ env.API_SERVICE_NAME }}:${{ github.sha }}"
+          docker build -t $IMAGE .
+          docker push $IMAGE
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.API_SERVICE_NAME }}
+          region: ${{ env.GCP_REGION }}
+          image: ${{ env.IMAGE }}
+          flags: >-
+            --allow-unauthenticated
+            --min-instances=0
+            --max-instances=10
+            --memory=512Mi
+            --cpu=1
+            --timeout=300
+            --set-env-vars=NODE_ENV=production
+          secrets: |
+            DATABASE_URL=DATABASE_URL:latest
+            DIRECT_URL=DIRECT_URL:latest
+            JWT_SECRET=JWT_SECRET:latest
+            SUPABASE_URL=SUPABASE_URL:latest
+            SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest
+            REDIS_URL=REDIS_URL:latest
+            FRONTEND_URL=FRONTEND_URL:latest
+            STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest
+            STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest
+
+      - name: Show deployment URL
+        run: |
+          echo "✅ API deployed to:"
+          gcloud run services describe ${{ env.API_SERVICE_NAME }} \
+            --region=${{ env.GCP_REGION }} \
+            --format='value(status.url)'
+
+  # ── Deploy Web to Vercel ────────────────────────────────────────
+  deploy-web:
+    name: Deploy Web → Vercel
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: apps/web
+
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: apps/web
+
+      - name: Deploy
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: apps/web
