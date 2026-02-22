@@ -2,9 +2,24 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@/lib/supabase/server';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2026-01-28.clover',
-});
+let stripeClient: Stripe | null = null;
+
+function getStripeClient() {
+    if (stripeClient) {
+        return stripeClient;
+    }
+
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+        throw new Error('Missing STRIPE_SECRET_KEY');
+    }
+
+    stripeClient = new Stripe(stripeSecretKey, {
+        apiVersion: '2026-01-28.clover',
+    });
+
+    return stripeClient;
+}
 
 // Map package IDs to their Stripe price IDs
 const PACKAGE_PRICES: Record<string, { amountInCents: number; credits: number }> = {
@@ -31,6 +46,8 @@ export async function POST(request: Request) {
         if (!pkg) {
             return NextResponse.json({ error: 'Invalid package' }, { status: 400 });
         }
+
+        const stripe = getStripeClient();
 
         const paymentIntent = await stripe.paymentIntents.create({
             amount: pkg.amountInCents,
