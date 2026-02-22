@@ -14,6 +14,11 @@ Create/update these Google Secret Manager secrets used by `.github/workflows/dep
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
+For GitHub -> GCP authentication, configure one option:
+
+- Preferred: `WIF_PROVIDER` + `WIF_SERVICE_ACCOUNT`
+- Fallback: `GCP_CREDENTIALS_JSON`
+
 Create/update these Vercel project env vars for staging:
 
 - `NEXT_PUBLIC_API_URL`

@@ -31,13 +31,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate GCP auth configuration
+        run: |
+          if [[ -n "${{ secrets.WIF_PROVIDER }}" && -n "${{ secrets.WIF_SERVICE_ACCOUNT }}" ]]; then
+            echo "Using Workload Identity Federation authentication."
+            exit 0
+          fi
+
+          if [[ -n "${{ secrets.GCP_CREDENTIALS_JSON }}" ]]; then
+            echo "Using service account JSON authentication."
+            exit 0
+          fi
+
+          echo "::error::Missing GCP auth secrets. Configure either WIF_PROVIDER + WIF_SERVICE_ACCOUNT, or GCP_CREDENTIALS_JSON."
+          exit 1
+
       # Authenticate with Google Cloud using Workload Identity Federation
       # (more secure than service account keys — no long-lived credentials)
-      - id: auth
+      - id: auth-wif
+        if: ${{ secrets.WIF_PROVIDER != '' && secrets.WIF_SERVICE_ACCOUNT != '' }}
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - id: auth-json
+        if: ${{ !(secrets.WIF_PROVIDER != '' && secrets.WIF_SERVICE_ACCOUNT != '') && secrets.GCP_CREDENTIALS_JSON != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
