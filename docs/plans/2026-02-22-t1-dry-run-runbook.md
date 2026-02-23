@@ -1,68 +1,53 @@
 # T-1 Production Dry Run Runbook
 
-## Completed locally (AI)
+## Execution Status (2026-02-22)
+
+This runbook has been executed against:
+
+- Project: `persona-prod-488212`
+- API: `https://persona-api-cahsiez3nq-ue.a.run.app`
+- Web: `https://persona-web-kohl.vercel.app`
+
+## Completed checks
 
 - `npm run build` passed.
 - `npm run test --workspace apps/api` passed with required env vars (`JWT_SECRET`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`).
-- CORS config is wired through `FRONTEND_URL` secret in deploy workflow.
+- CI on `main` is green (`.github/workflows/ci.yml` recent runs successful).
+- Deploy workflow on `main` is green (`.github/workflows/deploy.yml` recent runs successful).
+- Release candidate tag created and pushed: `v0.1.0-rc.1`.
 
-## Remaining operator steps
+## Rollback rehearsal results
 
-## 1) Confirm CI on `main`
+### Cloud Run revision rollback drill
 
-- Push branch and merge to `main`.
-- Confirm `.github/workflows/ci.yml` succeeds on `main`.
+- Revisions verified with `gcloud run revisions list --service persona-api --region us-east1`.
+- Traffic switched to previous revision (`persona-api-00005-dfx`) and health stayed `ok`.
+- Traffic restored to latest revision (`persona-api-00006-d6d`) and health stayed `ok`.
 
-## 2) Tag release candidate
+### Stripe webhook disable drill
 
-From a machine with git history and a clean merged commit:
+- Stripe endpoint `we_1T3kEAD5imEvK000sFtfyq3p` was disabled and re-enabled successfully.
+- `STRIPE_WEBHOOK_SECRET` is managed in GitHub + GCP Secret Manager and can be rotated by adding a new secret version and redeploying API.
 
-```bash
-git checkout main
-git pull
-git tag -a v0.1.0-rc.1 -m "Release candidate 1"
-git push origin v0.1.0-rc.1
-```
+## Monitoring and alerts
 
-## 3) Rehearse rollback (Cloud Run + Stripe)
+Created alert policies in Cloud Monitoring:
 
-### 3.1 Cloud Run revision rollback drill
+- `Persona API 5xx Requests`
+- `Persona Billing Webhook 4xx/5xx`
+- `Persona Billing Processing Errors`
 
-```bash
-gcloud run revisions list --service persona-api --region us-east1
-gcloud run services describe persona-api --region us-east1 --format='value(status.traffic)'
-```
+Current state:
 
-Pick previous healthy revision and route 100% traffic to it:
+- Policies are enabled and active.
+- No notification channels are attached yet; attach PagerDuty/email/Slack channels before launch.
 
-```bash
-gcloud run services update-traffic persona-api --region us-east1 --to-revisions <PREVIOUS_REVISION>=100
-```
+Policy definitions are tracked in:
 
-Verify:
+- `docs/plans/monitoring/persona-api-5xx-alert.json`
+- `docs/plans/monitoring/persona-billing-webhook-errors-alert.json`
+- `docs/plans/monitoring/persona-billing-processing-errors-alert.json`
 
-```bash
-curl -sS https://<api-domain>/api/v1/health
-```
+## Remaining manual operator check
 
-### 3.2 Stripe webhook disable drill
-
-- In Stripe Dashboard, locate staging/prod webhook endpoint.
-- Confirm you can temporarily disable and re-enable it.
-- Confirm secret rotation procedure (replace `STRIPE_WEBHOOK_SECRET` in secret manager, redeploy API).
-
-## 4) Monitoring and alert checks
-
-Verify dashboards/alerts exist for:
-
-- API 5xx error rate
-- Billing webhook 4xx/5xx rate
-- Payment processing failures (application log filter on billing errors)
-
-Recommended quick checks:
-
-```bash
-gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="persona-api" AND severity>=ERROR' --limit=50 --freshness=1h
-```
-
-If no alert policies exist yet, create them before launch.
+- On MCP host, confirm Google Cloud Run MCP server appears connected in "list servers".

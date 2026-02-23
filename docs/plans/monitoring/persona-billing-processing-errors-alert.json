@@ -1,0 +1,23 @@
+{
+  "displayName": "Persona Billing Processing Errors",
+  "combiner": "OR",
+  "enabled": true,
+  "alertStrategy": {
+    "notificationRateLimit": {
+      "period": "300s"
+    },
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "content": "Alert when billing processing emits error logs in persona-api.",
+    "mimeType": "text/markdown"
+  },
+  "conditions": [
+    {
+      "displayName": "billing processing error log match",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"persona-api\" AND severity>=ERROR AND (textPayload:\"BillingService\" OR textPayload:\"Stripe webhook\" OR textPayload:\"payment intent\")"
+      }
+    }
+  ]
+}

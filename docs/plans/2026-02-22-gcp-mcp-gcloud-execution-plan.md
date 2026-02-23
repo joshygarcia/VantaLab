@@ -10,6 +10,25 @@
 
 ---
 
+## Execution Status (2026-02-22)
+
+Completed in environment:
+
+- Tasks 1, 2, 3, 4, 5, 6, 7, and 8 were executed end-to-end.
+- WIF is active with:
+  - `PROJECT_ID=persona-prod-488212`
+  - `DEPLOY_SA_EMAIL=github-deploy@persona-prod-488212.iam.gserviceaccount.com`
+  - `WIF_PROVIDER=projects/1079076751122/locations/global/workloadIdentityPools/github-pool/providers/github-provider`
+- GitHub deploy auth and runtime secrets are configured, including `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`.
+- Cloud Run deploy is healthy with latest revision serving 100% traffic (`persona-api-00006-d6d`).
+- API health check passes at `https://persona-api-cahsiez3nq-ue.a.run.app/api/v1/health`.
+- Stripe webhook endpoint is configured at `https://persona-api-cahsiez3nq-ue.a.run.app/api/v1/billing/stripe/webhook` and `STRIPE_WEBHOOK_SECRET` is synced to GitHub + GCP Secret Manager.
+- Billing smoke tests passed, including duplicate webhook replay idempotency.
+
+Manual operator-only check still required on MCP host:
+
+- Task 1 / Step 2: run the MCP host "list servers" command and confirm Google Cloud Run MCP server is connected.
+
 ## Task 1: Prepare local operator environment
 
 **Files:**

@@ -1,8 +1,12 @@
 # T-2 Staging Runbook
 
-## 1) Configure staging secrets
+## Execution Status (2026-02-22)
 
-Create/update these Google Secret Manager secrets used by `.github/workflows/deploy.yml`:
+Staging/production-like deploy flow has been executed successfully.
+
+## 1) Secrets and auth configuration
+
+Configured in GitHub and GCP Secret Manager for deploy/runtime:
 
 - `DATABASE_URL`
 - `DIRECT_URL`
@@ -14,51 +18,54 @@ Create/update these Google Secret Manager secrets used by `.github/workflows/dep
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 
-For GitHub -> GCP authentication, configure one option:
+GitHub -> GCP auth is configured via WIF:
 
-- Preferred: `WIF_PROVIDER` + `WIF_SERVICE_ACCOUNT`
-- Fallback: `GCP_CREDENTIALS_JSON`
+- `WIF_PROVIDER`
+- `WIF_SERVICE_ACCOUNT`
 
-Create/update these Vercel project env vars for staging:
+Vercel deploy auth is pinned to the correct project with:
 
-- `NEXT_PUBLIC_API_URL`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
 
-## 2) Apply database migrations to staging
+## 2) Database migration and schema state
 
-From repo root:
-
-```bash
-npm install
-npm run prisma:migrate:deploy --workspace apps/api
-```
-
-If staging was previously bootstrapped with `prisma db push` (existing tables, no migration history), baseline first:
-
-```bash
-npx prisma migrate resolve --schema apps/api/prisma/schema.prisma --applied 20260222_init
-npm run prisma:migrate:deploy --workspace apps/api
-```
+- Prisma migration baseline applied for `20260222_init`.
+- Schema synchronized in Supabase after baseline.
+- Billing tables verified present and serving traffic (`UserCreditBalance`, `CreditTransaction`).
 
 ## 3) Deploy services
 
-- Trigger `.github/workflows/deploy.yml` from GitHub Actions.
-- Confirm API deploy logs include successful migration step.
-- Confirm Vercel build and deploy complete.
+- `.github/workflows/deploy.yml` is passing on `main`.
+- API deploy logs show successful Prisma migration step.
+- Vercel build + deploy complete for `persona-web`.
 
-## 4) Configure Stripe staging webhook
+## 4) Stripe webhook configuration
 
-- Endpoint: `https://<staging-api-domain>/api/v1/billing/stripe/webhook`
-- Events: `payment_intent.succeeded`
-- Save generated signing secret to `STRIPE_WEBHOOK_SECRET` (staging).
+- Endpoint URL: `https://persona-api-cahsiez3nq-ue.a.run.app/api/v1/billing/stripe/webhook`
+- Event: `payment_intent.succeeded`
+- Endpoint ID: `we_1T3kEAD5imEvK000sFtfyq3p`
+- `STRIPE_WEBHOOK_SECRET` synced to GitHub + GCP Secret Manager.
 
 ## 5) Smoke test checklist
 
-- Login/session works in staging app.
-- Billing checkout creates a payment intent.
-- Webhook call is accepted with valid signature.
+Completed:
+
+- Login/session works in deployed app.
+- Billing checkout creates payment intents.
+- Webhook accepted with valid signature.
 - Credit balance increases once after successful payment.
-- Replaying same webhook does not double-credit.
-- Billing transaction appears in history UI.
+- Replay webhook does not double-credit (idempotency verified).
+- Billing transaction appears in history data.
+
+Recent validated payment simulation for user `367bc4f1-6be2-4b19-993e-d9854df36e17`:
+
+- Payment Intent: `pi_3T3lagD5imEvK00000TDJ09n`
+- Credits delta: `+500`
+- Transaction ID: `cmlycllm90003s601iqgsvnyk`
+
+Replay verification result:
+
+- Same payment intent replayed through signed webhook payload.
+- Balance unchanged and transaction count unchanged.
