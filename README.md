@@ -100,6 +100,7 @@ git push origin <your-branch>
 - Dev API cleanup: `.github/workflows/cleanup-dev-services.yml`
   - Trigger: branch delete, merged PR to `main`, or manual dispatch
   - Action: deletes `persona-api-dev-<branch>` Cloud Run service when present
+  - Manual run: provide `branch` input to target a specific branch service
 - Production deploy: `.github/workflows/deploy.yml`
   - Trigger: push to `main`
   - Deploy targets: production API service + production Vercel web
