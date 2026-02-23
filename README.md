@@ -55,6 +55,78 @@ Captured from the live deployment:
 - Cloud: Google Cloud (Cloud Run, Artifact Registry, Secret Manager)
 - CI/CD: GitHub Actions (`.github/workflows/ci.yml`, `.github/workflows/deploy.yml`)
 
+## Environment Split (Dev / Staging / Prod)
+
+Use dedicated resources per environment. Do not share prod DB/API with dev work.
+
+- API templates:
+  - Dev: `apps/api/.env.dev.example`
+  - Staging: `apps/api/.env.staging.example`
+  - Prod: `apps/api/.env.prod.example`
+- Web templates:
+  - Dev: `apps/web/.env.dev.example`
+  - Staging: `apps/web/.env.staging.example`
+  - Prod: `apps/web/.env.prod.example`
+
+Recommended mapping:
+
+- Dev: local web + branch-safe dev API + dev DB
+- Staging: deployed web + staging API + staging DB
+- Prod: deployed web + production API + production DB
+
+## Local + Cloud Dev Workflow (No Local DB / No Docker)
+
+This flow is designed for your current setup where the local machine cannot run Docker and cannot reach DB directly.
+
+1. Create a branch and push it.
+2. `Deploy Dev API` workflow auto-runs and deploys a branch-safe Cloud Run service.
+3. Copy `Base URL` from workflow logs.
+4. In local web env, set `NEXT_PUBLIC_API_URL=<base-url>/api/v1`.
+5. Run local web and test against cloud dev API:
+   - `npm run dev:web`
+
+One-command preview trigger:
+
+```bash
+git push origin <your-branch>
+```
+
+## GitHub Actions: Dev vs Prod
+
+- Dev API preview: `.github/workflows/deploy-dev.yml`
+  - Trigger: push to any non-`main` branch
+  - Deploy target: `persona-api-dev-<branch>` Cloud Run service
+  - Secrets prefix: `DEV_*`
+- Dev API cleanup: `.github/workflows/cleanup-dev-services.yml`
+  - Trigger: branch delete, merged PR to `main`, or manual dispatch
+  - Action: deletes `persona-api-dev-<branch>` Cloud Run service when present
+- Production deploy: `.github/workflows/deploy.yml`
+  - Trigger: push to `main`
+  - Deploy targets: production API service + production Vercel web
+- CI checks: `.github/workflows/ci.yml`
+  - Trigger: PR to `main` and push to `main`
+
+Required GitHub secrets for `Deploy Dev API`:
+
+- `DEV_GCP_PROJECT_ID`
+- Auth (choose one mode):
+  - `DEV_WIF_PROVIDER` and `DEV_WIF_SERVICE_ACCOUNT`, or
+  - `DEV_GCP_CREDENTIALS_JSON`
+- Migration DB connections:
+  - `DEV_DATABASE_URL`
+  - `DEV_DIRECT_URL`
+
+Required Google Secret Manager secrets consumed by Cloud Run deploy:
+
+- `DEV_DATABASE_URL`
+- `DEV_DIRECT_URL`
+- `DEV_JWT_SECRET`
+- `DEV_SUPABASE_URL`
+- `DEV_SUPABASE_ANON_KEY`
+- `DEV_REDIS_URL`
+- `DEV_STRIPE_SECRET_KEY`
+- `DEV_STRIPE_WEBHOOK_SECRET`
+
 ## Documentation
 
 - Full app documentation: `docs/app-documentation.md`
