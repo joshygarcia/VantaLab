@@ -1,61 +1,70 @@
-# Persona Engine MVP (Localhost)
+# Persona Engine - Production AI Workflow SaaS
 
-This repository now includes a first runnable MVP with:
+TL;DR stack: Next.js 15 + React 19, NestJS 10 + Prisma/PostgreSQL, Supabase Auth/Realtime, Stripe Billing, Google Cloud Run, Vercel, GitHub Actions.
 
-- `apps/web`: Next.js canvas UI (React Flow)
-- `apps/api`: NestJS workflow API
-- Native Node.js background async workflow processing
-- Prisma + PostgreSQL persistent workflow and billing records
+I built Persona Engine to help creators generate image/video content from reusable node-based workflows, with built-in credit billing and production-grade deployment.
 
-## Prerequisites
+- Live app: `https://persona-web-kohl.vercel.app`
+- API health: `https://persona-api-cahsiez3nq-ue.a.run.app/api/v1/health`
 
-- Node.js 20+
-- npm 10+
+## What I Built (1-Minute Overview)
 
-## Run locally
+- Built and launched a full-stack AI SaaS (Next.js + NestJS) from product UX to cloud deployment.
+- Shipped a React Flow studio that turns prompt/media logic into reusable nodes (prompt lists, image lists, multi-shot prompts, identity vault).
+- Implemented asynchronous generation orchestration with idempotent jobs, SSE status streaming, and polling fallback.
+- Added Stripe credit monetization with webhook-based credit settlement and replay-safe idempotency controls.
+- Deployed production on Vercel (web) and Google Cloud Run (api) with GitHub Actions CI/CD and documented rollout runbooks.
 
-1. Install dependencies:
+## Impact
 
-```bash
-npm install
-```
+- Problem: creators often manage prompting, generation, and assets across disconnected tools.
+- Solution: Persona Engine unifies that workflow into one studio with reusable creative building blocks and built-in billing.
+- Technical complexity: the product combines workspace-scoped auth, async job processing, realtime sync, and idempotent payment settlement across split deployments.
 
-2. Initialize API database client/schema (first run):
+## Product Capabilities
 
-```bash
-npm run db:setup --workspace apps/api
-```
+- Supabase-authenticated studio experience (Google OAuth)
+- Node-based workflow canvas for text/image/video pipelines
+- Kie.ai-powered generation orchestration
+- Workspace spaces and Kling elements library management
+- Billing dashboard with credit purchases and transaction history
+- Admin tooling for KPIs, provider key management, and system logs
 
-### Required environment setup
+## Visual Proof
 
-- API env: copy `apps/api/.env.example` to `apps/api/.env` and set values.
-- Web env: copy `apps/web/.env.example` to `apps/web/.env.local` and set values.
-- Billing requires Stripe keys:
-  - API: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
-  - Web: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+Captured from the live deployment:
 
-3. Start web + api together:
+![Persona Engine Pricing Section](docs/persona-pricing.png)
 
-```bash
-npm run dev
-```
+![Persona Engine Preview GIF](docs/persona-preview.gif)
 
-4. Open the app:
+## Architecture Snapshot
 
-- Web: `http://localhost:3000`
-- API: `http://localhost:4000`
+- `apps/web` - Next.js 15 + React 19 frontend
+- `apps/api` - NestJS 10 + Prisma backend
+- `packages/types` - shared TypeScript package
+- Supabase - authentication and realtime sync
+- PostgreSQL - durable workflow and billing data
+- Hosting split - Vercel (web) + Google Cloud Run (api)
 
-## MVP flow
+## Tech Stack
 
-1. Open `/canvas/local`
-2. Click **Generate Video**
-3. The node goes to `processing`
-4. After a few seconds, the job resolves with a sample media URL
+- Frontend: Next.js 15, React 19, Tailwind CSS, Zustand, React Flow
+- Backend: NestJS 10, Prisma, PostgreSQL, Stripe SDK
+- Auth and Realtime: Supabase
+- Cloud: Google Cloud (Cloud Run, Artifact Registry, Secret Manager)
+- CI/CD: GitHub Actions (`.github/workflows/ci.yml`, `.github/workflows/deploy.yml`)
 
-## Notes
+## Documentation
 
-- Workflow and billing data are persisted in PostgreSQL via `DATABASE_URL`.
-- Queue processing has been simplified to run in-memory within the NestJS process.
-- Workflow endpoints require a JWT bearer token with workspace scope.
-- The web app auto-mints a dev token via `POST /api/v1/auth/dev-token` per workspace.
-- Set `JWT_SECRET` to replace the local default signing key.
+- Full app documentation: `docs/app-documentation.md`
+- Deployment execution plan: `docs/plans/2026-02-22-gcp-mcp-gcloud-execution-plan.md`
+- Dry-run runbook: `docs/plans/2026-02-22-t1-dry-run-runbook.md`
+- Staging runbook: `docs/plans/2026-02-22-t2-staging-runbook.md`
+- Deployment checklist: `docs/plans/2026-02-22-deployment-checklist.md`
+
+## Resume-Ready Highlights
+
+- Built and launched a full-stack AI SaaS using Next.js, NestJS, Prisma, and Supabase with a node-based workflow studio and Stripe credit monetization.
+- Implemented asynchronous media orchestration with idempotent execution, SSE status streaming, polling fallback, and provider API-key load balancing.
+- Shipped a production split deployment (Vercel + Google Cloud Run) with CI/CD automation, migration handling, rollout runbooks, and webhook idempotency validation.
