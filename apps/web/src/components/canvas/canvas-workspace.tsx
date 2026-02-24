@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import ReactFlow, { Background, Connection, Edge, MiniMap, Node, ReactFlowProvider } from 'reactflow';
+import ReactFlow, { Background, Connection, Edge, MiniMap, Node, ReactFlowProvider, useReactFlow } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { NodeData, useCanvasStore } from '@/store/canvas-store';
-import { executeWorkflow, getJobStatus, subscribeToJobStatus } from '@/lib/api';
+import { executeWorkflow, getJobStatus, getWorkspaceCanvas, subscribeToJobStatus, updateWorkspaceCanvas } from '@/lib/api';
 import { findProjectBySpaceId } from '@/lib/projects';
 import { useProjectContext } from '@/components/projects/project-context';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
@@ -493,6 +493,7 @@ export function CanvasWorkspace({ workspaceId }: CanvasWorkspaceProps) {
 }
 
 function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
+  const reactFlow = useReactFlow();
   const { projects, activeProject, activeSpace, setActiveBySpaceId } = useProjectContext();
   const [running, setRunning] = useState(false);
   const [activeTool, setActiveTool] = useState<'select' | 'draw'>('select');
@@ -504,6 +505,12 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const [future, setFuture] = useState<Array<{ nodes: Node<NodeData>[]; edges: Edge[] }>>([]);
   const nodeCounterRef = useRef(1);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSavedGraphRef = useRef<string>('');
+  const viewportRef = useRef<{ x: number; y: number; zoom: number }>({ x: 0, y: 0, zoom: 1 });
+  const [viewportVersion, setViewportVersion] = useState(0);
+  const [canvasReady, setCanvasReady] = useState(false);
+  const [canvasError, setCanvasError] = useState('');
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -537,6 +544,68 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const breadcrumbWorkspaceLabel = workspaceMatch?.space.name
     ?? (activeSpace?.id === workspaceId ? activeSpace.name : workspaceId);
 
+  const serializeCanvas = useCallback((graphNodes: Node<NodeData>[], graphEdges: Edge[], viewport?: { x: number; y: number; zoom: number }) => {
+    return JSON.stringify({
+      nodes: graphNodes,
+      edges: graphEdges,
+      viewport
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCanvas = async () => {
+      setCanvasReady(false);
+      setCanvasError('');
+
+      try {
+        const payload = await getWorkspaceCanvas(workspaceId);
+        if (cancelled) {
+          return;
+        }
+
+        const loadedNodes = Array.isArray(payload.nodes) ? (payload.nodes as Node<NodeData>[]) : [];
+        const loadedEdges = Array.isArray(payload.edges) ? (payload.edges as Edge[]) : [];
+        setCanvas(loadedNodes, loadedEdges);
+
+        if (payload.viewport &&
+          typeof payload.viewport.x === 'number' &&
+          typeof payload.viewport.y === 'number' &&
+          typeof payload.viewport.zoom === 'number') {
+          viewportRef.current = payload.viewport;
+          reactFlow.setViewport(payload.viewport, { duration: 0 });
+        } else {
+          viewportRef.current = reactFlow.getViewport();
+        }
+
+        latestSavedGraphRef.current = serializeCanvas(loadedNodes, loadedEdges, viewportRef.current);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        setCanvas([], []);
+        viewportRef.current = reactFlow.getViewport();
+        latestSavedGraphRef.current = serializeCanvas([], [], viewportRef.current);
+        setCanvasError('Unable to load saved space canvas. Starting from a blank workspace.');
+      } finally {
+        if (!cancelled) {
+          setCanvasReady(true);
+        }
+      }
+    };
+
+    void loadCanvas();
+
+    return () => {
+      cancelled = true;
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [workspaceId, setCanvas, reactFlow, serializeCanvas]);
+
   useEffect(() => {
     document.body.classList.add('canvas-workspace-page');
 
@@ -544,6 +613,45 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       document.body.classList.remove('canvas-workspace-page');
     };
   }, []);
+
+  useEffect(() => {
+    if (!canvasReady) {
+      return;
+    }
+
+    const viewport = viewportRef.current;
+    const serializedGraph = serializeCanvas(nodes, edges, viewport);
+    if (serializedGraph === latestSavedGraphRef.current) {
+      return;
+    }
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = setTimeout(() => {
+      void (async () => {
+        try {
+          await updateWorkspaceCanvas(workspaceId, {
+            nodes: nodes as unknown as Record<string, unknown>[],
+            edges: edges as unknown as Record<string, unknown>[],
+            viewport
+          });
+
+          latestSavedGraphRef.current = serializedGraph;
+          setCanvasError('');
+        } catch {
+          setCanvasError('Unable to save changes for this space right now.');
+        }
+      })();
+    }, 800);
+
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [canvasReady, edges, nodes, serializeCanvas, viewportVersion, workspaceId]);
 
   useEffect(() => {
     const syncSidebarStateFromDom = () => {
@@ -2075,6 +2183,12 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         onClose={() => setSettingsOpen(false)}
       />
 
+      {canvasError ? (
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+          {canvasError}
+        </div>
+      ) : null}
+
       <section className="flex min-h-0 flex-1 overflow-hidden bg-[#0f0f11]" onClick={closeContextMenus}>
         <FloatingToolbar
           activeTool={activeTool}
@@ -2099,6 +2213,10 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           onConnect={(connection) => {
             onConnect(connection);
             broadcastEdges(useCanvasStore.getState().edges);
+          }}
+          onMoveEnd={(_, viewport) => {
+            viewportRef.current = viewport;
+            setViewportVersion((version) => version + 1);
           }}
           isValidConnection={(connection: Connection) => isConnectionCompatible(connection)}
           deleteKeyCode={null}

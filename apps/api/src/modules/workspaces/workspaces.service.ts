@@ -8,6 +8,7 @@ import { UpdateKlingElementsLibraryDto } from './dto/update-kling-elements-libra
 import { UploadWorkspaceFileDto } from './dto/upload-workspace-file.dto';
 import { CreateCustomSpaceDto, SpaceProtection } from './dto/create-custom-space.dto';
 import { UpdateCustomSpaceDto } from './dto/update-custom-space.dto';
+import { UpdateWorkspaceCanvasDto } from './dto/update-workspace-canvas.dto';
 
 type KieUploadResponse = {
     success?: boolean;
@@ -27,6 +28,16 @@ type CustomSpaceItem = {
     protection: SpaceProtection;
     sharedWorkspaceIds: string[];
     createdAt: string;
+};
+
+type WorkspaceCanvasState = {
+    nodes: Record<string, unknown>[];
+    edges: Record<string, unknown>[];
+    viewport?: {
+        x: number;
+        y: number;
+        zoom: number;
+    };
 };
 
 @Injectable()
@@ -204,6 +215,84 @@ export class WorkspacesService {
         });
 
         return { success: true };
+    }
+
+    async getWorkspaceCanvas(id: string, userWorkspaceIds: string[]) {
+        this.assertWorkspaceAccess(id, userWorkspaceIds);
+
+        const workspace = await (this.prisma as any).workspace.findUnique({
+            where: { id },
+            select: {
+                canvasState: true
+            }
+        }) as { canvasState?: string | null } | null;
+
+        if (!workspace?.canvasState) {
+            return {
+                nodes: [],
+                edges: []
+            };
+        }
+
+        try {
+            const parsed = JSON.parse(workspace.canvasState) as WorkspaceCanvasState;
+            const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
+            const edges = Array.isArray(parsed.edges) ? parsed.edges : [];
+
+            const viewport = parsed.viewport &&
+                typeof parsed.viewport.x === 'number' &&
+                typeof parsed.viewport.y === 'number' &&
+                typeof parsed.viewport.zoom === 'number'
+                ? parsed.viewport
+                : undefined;
+
+            return {
+                nodes,
+                edges,
+                viewport
+            };
+        } catch {
+            return {
+                nodes: [],
+                edges: []
+            };
+        }
+    }
+
+    async updateWorkspaceCanvas(
+        id: string,
+        payload: UpdateWorkspaceCanvasDto,
+        userWorkspaceIds: string[],
+        userId: string | undefined
+    ) {
+        if (!userId) {
+            throw new UnauthorizedException('Missing authenticated user id');
+        }
+
+        this.assertWorkspaceAccess(id, userWorkspaceIds);
+
+        const canvasState: WorkspaceCanvasState = {
+            nodes: payload.nodes,
+            edges: payload.edges,
+            viewport: payload.viewport
+        };
+
+        await (this.prisma as any).workspace.upsert({
+            where: { id },
+            update: {
+                canvasState: JSON.stringify(canvasState)
+            },
+            create: {
+                id,
+                userId,
+                name: `Workspace ${id}`,
+                canvasState: JSON.stringify(canvasState)
+            }
+        });
+
+        return {
+            success: true
+        };
     }
 
     async getKlingElementsLibrary(id: string, userWorkspaceIds: string[]) {

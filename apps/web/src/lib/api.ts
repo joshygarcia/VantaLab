@@ -94,6 +94,16 @@ type BillingTransactionsResponse = {
   transactions: BillingTransaction[];
 };
 
+export type WorkspaceCanvasPayload = {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  viewport?: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
+};
+
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -344,6 +354,44 @@ export async function deleteCustomSpace(
 
   if (!response.ok) {
     throw new Error('Failed to delete custom space');
+  }
+
+  return response.json();
+}
+
+export async function getWorkspaceCanvas(workspaceId: string): Promise<WorkspaceCanvasPayload> {
+  const accessToken = await getAccessToken(workspaceId);
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/canvas`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch workspace canvas');
+  }
+
+  return response.json();
+}
+
+export async function updateWorkspaceCanvas(
+  workspaceId: string,
+  payload: WorkspaceCanvasPayload
+): Promise<{ success: boolean }> {
+  const accessToken = await getAccessToken(workspaceId);
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/canvas`, {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to save workspace canvas');
   }
 
   return response.json();
