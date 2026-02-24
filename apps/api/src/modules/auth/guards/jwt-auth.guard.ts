@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { JwtService } from '@nestjs/jwt';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AuthClaims } from '../auth.types';
+import { PrismaService } from '../../database/prisma.service';
 
 const DEFAULT_WORKSPACE_ID = 'local';
 
@@ -10,7 +11,7 @@ type AuthenticatedUser = {
   sub?: string;
   workspaceIds: string[];
   email?: string | null;
-  role?: string;
+  role?: 'member' | 'developer';
 };
 
 export interface AuthenticatedRequest {
@@ -26,7 +27,10 @@ export interface AuthenticatedRequest {
 export class JwtAuthGuard implements CanActivate {
   private supabase: SupabaseClient | null = null;
 
-  constructor(private readonly jwtService: JwtService) {
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly prismaService: PrismaService
+  ) {
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_ANON_KEY;
 
@@ -55,9 +59,11 @@ export class JwtAuthGuard implements CanActivate {
 
     const localClaims = await this.tryVerifyLocalJwt(token);
     if (localClaims) {
+      const role = await this.resolveUserRole(localClaims.sub);
       request.user = {
         id: localClaims.sub,
         sub: localClaims.sub,
+        role,
         workspaceIds: this.normalizeWorkspaceIds(localClaims.workspaceIds)
       };
       return true;
@@ -74,16 +80,72 @@ export class JwtAuthGuard implements CanActivate {
       }
 
       const workspaceIds = this.normalizeWorkspaceIds((user.app_metadata as { workspaceIds?: unknown } | undefined)?.workspaceIds);
+      const role = await this.resolveUserRole(user.id, user.email ?? null);
       request.user = {
         id: user.id,
         sub: user.id,
         workspaceIds,
-        email: user.email ?? null
+        email: user.email ?? null,
+        role
       };
       return true;
     } catch {
       throw new UnauthorizedException('Invalid bearer token');
     }
+  }
+
+  private async resolveUserRole(userId: string, email?: string | null): Promise<'member' | 'developer'> {
+    const existingById = await this.prismaService.userAccount.findUnique({
+      where: { id: userId }
+    });
+
+    if (existingById) {
+      if (email && existingById.email !== email) {
+        const emailOwner = await this.prismaService.userAccount.findUnique({
+          where: { email }
+        });
+
+        if (!emailOwner || emailOwner.id === userId) {
+          await this.prismaService.userAccount.update({
+            where: { id: userId },
+            data: { email }
+          });
+        }
+      }
+
+      return existingById.role === 'DEVELOPER' ? 'developer' : 'member';
+    }
+
+    if (email) {
+      const existingByEmail = await this.prismaService.userAccount.findUnique({
+        where: { email }
+      });
+
+      if (existingByEmail) {
+        await this.prismaService.userAccount.delete({
+          where: { id: existingByEmail.id }
+        });
+
+        const migrated = await this.prismaService.userAccount.create({
+          data: {
+            id: userId,
+            email,
+            role: existingByEmail.role
+          }
+        });
+
+        return migrated.role === 'DEVELOPER' ? 'developer' : 'member';
+      }
+    }
+
+    const userAccount = await this.prismaService.userAccount.create({
+      data: {
+        id: userId,
+        email: email ?? null
+      }
+    });
+
+    return userAccount.role === 'DEVELOPER' ? 'developer' : 'member';
   }
 
   private async tryVerifyLocalJwt(token: string): Promise<AuthClaims | null> {

@@ -16,10 +16,14 @@ import {
   LucideIcon,
   MoonStar,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  ShieldAlert
 } from 'lucide-react';
 import { useProjectContext } from '@/components/projects/project-context';
 import { UserButton } from '@/components/auth/UserButton';
+import { createClient } from '@/lib/supabase/client';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
 const footerButtonClass =
   'inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors duration-200 hover:bg-white/5 hover:text-white';
@@ -35,6 +39,7 @@ const linkClass = (active: boolean) =>
 export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [isDeveloper, setIsDeveloper] = useState(false);
   const projectSelectorRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname();
   const router = useRouter();
@@ -104,6 +109,53 @@ export default function Sidebar() {
     };
   }, [projectMenuOpen]);
 
+  useEffect(() => {
+    const supabase = createClient();
+
+    const syncRole = async () => {
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        setIsDeveloper(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/auth/me`, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: {
+            authorization: `Bearer ${session.access_token}`
+          }
+        });
+
+        if (!response.ok) {
+          setIsDeveloper(false);
+          return;
+        }
+
+        const body = (await response.json()) as { role?: string };
+        setIsDeveloper(body.role === 'developer');
+      } catch {
+        setIsDeveloper(false);
+      }
+    };
+
+    void syncRole();
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(() => {
+      void syncRole();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
   const handleSelectProjectSpace = (projectId: string, spaceId: string) => {
     setActiveSelection(projectId, spaceId);
     setProjectMenuOpen(false);
@@ -120,6 +172,10 @@ export default function Sidebar() {
     { name: 'Kling Library', href: '/library', icon: LibraryBig },
     { name: 'Element Creator Lab', href: '/element-creator-lab', icon: FlaskConical }
   ];
+
+  if (isDeveloper) {
+    toolLinks.push({ name: 'Developer', href: '/admin', icon: ShieldAlert });
+  }
 
   return (
     <aside

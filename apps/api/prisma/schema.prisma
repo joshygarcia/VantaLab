@@ -8,6 +8,19 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum UserRole {
+  MEMBER
+  DEVELOPER
+}
+
+model UserAccount {
+  id        String   @id
+  email     String?  @unique
+  role      UserRole @default(MEMBER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model WorkflowJob {
   id               String   @id
   userId           String
