@@ -10,16 +10,37 @@ import { WorkspaceAccessGuard } from './guards/workspace-access.guard';
 import { WorkflowQueueService } from '../workflows/workflow-queue.service';
 import { WorkflowsController } from '../workflows/workflows.controller';
 import { WorkflowsService } from '../workflows/workflows.service';
+import { PrismaService } from '../database/prisma.service';
 
 describe('Auth API', () => {
   let app: INestApplication;
   let jwtService: JwtService;
 
   beforeAll(async () => {
+    const prismaMock = {
+      userAccount: {
+        findUnique: jest.fn(async () => null),
+        create: jest.fn(async ({ data }: { data: { id: string; email?: string | null } }) => ({
+          id: data.id,
+          email: data.email ?? null,
+          role: 'MEMBER'
+        })),
+        update: jest.fn(async () => ({})),
+        delete: jest.fn(async () => ({}))
+      }
+    };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [JwtModule.register({})],
       controllers: [AuthController],
-      providers: [AuthService, JwtAuthGuard]
+      providers: [
+        AuthService,
+        JwtAuthGuard,
+        {
+          provide: PrismaService,
+          useValue: prismaMock
+        }
+      ]
     }).compile();
 
     app = moduleRef.createNestApplication();
@@ -64,6 +85,19 @@ describe('Workflow Guards', () => {
   }));
 
   beforeAll(async () => {
+    const prismaMock = {
+      userAccount: {
+        findUnique: jest.fn(async () => null),
+        create: jest.fn(async ({ data }: { data: { id: string; email?: string | null } }) => ({
+          id: data.id,
+          email: data.email ?? null,
+          role: 'MEMBER'
+        })),
+        update: jest.fn(async () => ({})),
+        delete: jest.fn(async () => ({}))
+      }
+    };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [JwtModule.register({})],
       controllers: [WorkflowsController],
@@ -82,6 +116,10 @@ describe('Workflow Guards', () => {
           useValue: {
             jobUpdates: jest.fn()
           }
+        },
+        {
+          provide: PrismaService,
+          useValue: prismaMock
         }
       ]
     }).compile();

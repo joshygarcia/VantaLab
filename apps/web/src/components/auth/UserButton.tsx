@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRouter } from 'next/navigation';
 import { LogIn, LogOut, User as UserIcon } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 
 export function UserButton({ isCollapsed }: { isCollapsed?: boolean }) {
+    const router = useRouter();
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
     const supabase = createClient();
@@ -39,6 +41,8 @@ export function UserButton({ isCollapsed }: { isCollapsed?: boolean }) {
 
     const handleSignOut = async () => {
         await supabase.auth.signOut();
+        router.push('/');
+        router.refresh();
     };
 
     if (loading) {

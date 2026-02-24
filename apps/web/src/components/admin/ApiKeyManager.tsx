@@ -2,16 +2,21 @@
 
 import { useState, useEffect } from "react";
 import { PlusCircle, Key, Activity, Clock, Trash2 } from "lucide-react";
+import { adminApiFetch } from '@/lib/admin-api';
+
+type ApiKeyItem = {
+    id: string;
+    key: string;
+    isActive: boolean;
+    usageCount: number;
+    lastUsedAt: string | null;
+};
 
 export function ApiKeyManager() {
-    const [keys, setKeys] = useState<any[]>([]);
+    const [keys, setKeys] = useState<ApiKeyItem[]>([]);
     const [newKey, setNewKey] = useState("");
     const [isLoading, setIsLoading] = useState(true);
-
-    // Use the correct API base URL for localhost routing to NestJS. 
-    // Next.js uses 3000, Nest is on 4000. For client-side fetching during dev, you might need absolute if not proxied.
-    // Assuming a standard proxy or standard full URL for now since it's local MVP.
-    const API_URL = "http://localhost:4000/api/v1/admin/api-keys";
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     useEffect(() => {
         fetchKeys();
@@ -19,13 +24,13 @@ export function ApiKeyManager() {
 
     const fetchKeys = async () => {
         try {
-            const res = await fetch(API_URL);
-            if (res.ok) {
-                const data = await res.json();
-                setKeys(data);
-            }
+            const res = await adminApiFetch('/admin/api-keys');
+            const data = (await res.json()) as ApiKeyItem[];
+            setKeys(data);
+            setErrorMessage(null);
         } catch (e) {
             console.error("Failed to fetch keys", e);
+            setErrorMessage(e instanceof Error ? e.message : 'Failed to fetch keys');
         } finally {
             setIsLoading(false);
         }
@@ -34,41 +39,43 @@ export function ApiKeyManager() {
     const addKey = async () => {
         if (!newKey.trim()) return;
         try {
-            const res = await fetch(API_URL, {
+            await adminApiFetch('/admin/api-keys', {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ provider: "kie.ai", key: newKey.trim() })
             });
-            if (res.ok) {
-                setNewKey("");
-                fetchKeys();
-            }
+            setNewKey("");
+            setErrorMessage(null);
+            fetchKeys();
         } catch (e) {
             console.error("Failed to add key", e);
+            setErrorMessage(e instanceof Error ? e.message : 'Failed to add key');
         }
     };
 
     const toggleStatus = async (id: string, currentStatus: boolean) => {
         try {
-            await fetch(`${API_URL}/${id}/status`, {
+            await adminApiFetch(`/admin/api-keys/${id}/status`, {
                 method: "PATCH",
-                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ isActive: !currentStatus })
             });
+            setErrorMessage(null);
             fetchKeys();
         } catch (e) {
             console.error("Failed to toggle status", e);
+            setErrorMessage(e instanceof Error ? e.message : 'Failed to toggle status');
         }
     };
 
     const deleteKey = async (id: string) => {
         try {
-            await fetch(`${API_URL}/${id}`, {
+            await adminApiFetch(`/admin/api-keys/${id}`, {
                 method: "DELETE"
             });
+            setErrorMessage(null);
             fetchKeys();
         } catch (e) {
             console.error("Failed to delete key", e);
+            setErrorMessage(e instanceof Error ? e.message : 'Failed to delete key');
         }
     };
 
@@ -87,6 +94,12 @@ export function ApiKeyManager() {
                     </p>
                 </div>
             </div>
+
+            {errorMessage ? (
+                <div className="rounded-lg border border-red-900/50 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                    {errorMessage}
+                </div>
+            ) : null}
 
             <div className="flex gap-3">
                 <input

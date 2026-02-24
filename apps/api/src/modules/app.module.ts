@@ -6,6 +6,7 @@ import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { WorkspaceAccessGuard } from './auth/guards/workspace-access.guard';
+import { DeveloperRoleGuard } from './auth/guards/developer-role.guard';
 import { PrismaService } from './database/prisma.service';
 import { WorkflowsController } from './workflows/workflows.controller';
 import { WorkflowQueueService } from './workflows/workflow-queue.service';
@@ -32,6 +33,7 @@ import { BillingService } from './billing/billing.service';
     AuthService,
     JwtAuthGuard,
     WorkspaceAccessGuard,
+    DeveloperRoleGuard,
     PrismaService,
     WorkflowQueueService,
     WorkflowsService,

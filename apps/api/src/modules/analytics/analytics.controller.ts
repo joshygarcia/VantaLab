@@ -1,37 +1,47 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { DeveloperRoleGuard } from '../auth/guards/developer-role.guard';
 
 @Controller('api/v1/admin/analytics')
+@UseGuards(JwtAuthGuard, DeveloperRoleGuard)
 export class AnalyticsController {
     constructor(private readonly prisma: PrismaService) { }
 
     @Get('kpi')
     async getKpis() {
-        // 1. Total Workspaces (Proxy for Users currently)
-        const totalUsers = await this.prisma.workspace.count();
-
-        // 2. Active API Keys
-        const activeApiKeys = await this.prisma.apiKey.count({
-            where: { isActive: true },
-        });
-
-        // 3. API Metrics
-        const usageLogs = await this.prisma.apiUsageLog.aggregate({
-            _count: {
-                id: true,
-            },
-            _sum: {
-                costInCents: true,
-            },
-        });
-
-        // 4. Workflow Success/Failure Breakdown
-        const workflowStatsRaw = await this.prisma.workflowJob.groupBy({
-            by: ['status'],
-            _count: {
-                id: true,
-            },
-        });
+        const [
+            totalUsers,
+            activeApiKeys,
+            usageLogs,
+            workflowStatsRaw,
+            billingTotals
+        ] = await Promise.all([
+            this.prisma.userAccount.count(),
+            this.prisma.apiKey.count({
+                where: { isActive: true },
+            }),
+            this.prisma.apiUsageLog.aggregate({
+                _count: {
+                    id: true,
+                },
+                _sum: {
+                    costInCents: true,
+                },
+            }),
+            this.prisma.workflowJob.groupBy({
+                by: ['status'],
+                _count: {
+                    id: true,
+                },
+            }),
+            this.prisma.creditTransaction.aggregate({
+                _sum: {
+                    credits: true,
+                    amountInCents: true,
+                },
+            })
+        ]);
 
         const workflowStats = workflowStatsRaw.reduce((acc, curr) => {
             acc[curr.status] = curr._count.id;
@@ -44,9 +54,8 @@ export class AnalyticsController {
             apiCalls: usageLogs._count.id || 0,
             apiCostInCents: usageLogs._sum.costInCents || 0,
             workflowStats,
-            // Mock metrics for revenue/credits until billing is implemented
-            creditPurchases: 1250,
-            overallRevenueInCents: 50000,
+            creditPurchases: billingTotals._sum.credits || 0,
+            overallRevenueInCents: billingTotals._sum.amountInCents || 0,
         };
     }
 
