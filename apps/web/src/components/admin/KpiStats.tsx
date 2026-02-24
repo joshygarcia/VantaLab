@@ -2,23 +2,33 @@
 
 import { useState, useEffect } from "react";
 import { Users, CreditCard, Activity, DollarSign, Layers, PieChart } from "lucide-react";
+import { adminApiFetch } from '@/lib/admin-api';
+
+type KpiResponse = {
+    totalUsers: number;
+    activeApiKeys: number;
+    apiCalls: number;
+    apiCostInCents: number;
+    creditPurchases: number;
+    overallRevenueInCents: number;
+    workflowStats: Record<string, number>;
+};
 
 export function KpiStats() {
-    const [stats, setStats] = useState<any>(null);
+    const [stats, setStats] = useState<KpiResponse | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-
-    const API_URL = "http://localhost:4000/api/v1/admin/analytics/kpi";
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const res = await fetch(API_URL);
-                if (res.ok) {
-                    const data = await res.json();
-                    setStats(data);
-                }
+                const res = await adminApiFetch('/admin/analytics/kpi');
+                const data = (await res.json()) as KpiResponse;
+                setStats(data);
+                setErrorMessage(null);
             } catch (e) {
                 console.error("Failed to fetch KPIs", e);
+                setErrorMessage(e instanceof Error ? e.message : 'Failed to fetch KPIs');
             } finally {
                 setIsLoading(false);
             }
@@ -29,15 +39,22 @@ export function KpiStats() {
         // Poll every 30 seconds
         const interval = setInterval(fetchStats, 30000);
         return () => clearInterval(interval);
-    }, [API_URL]);
+    }, []);
 
     if (isLoading || !stats) {
         return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-pulse">
-                {[...Array(6)].map((_, i) => (
-                    <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 h-32" />
-                ))}
-            </div>
+            <>
+                {errorMessage ? (
+                    <div className="mb-6 rounded-xl border border-red-900/50 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                        {errorMessage}
+                    </div>
+                ) : null}
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 animate-pulse">
+                    {[...Array(6)].map((_, i) => (
+                        <div key={i} className="h-32 rounded-xl border border-neutral-800 bg-neutral-900 p-6" />
+                    ))}
+                </div>
+            </>
         );
     }
 

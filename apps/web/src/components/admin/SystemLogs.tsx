@@ -2,25 +2,34 @@
 
 import { useState, useEffect } from "react";
 import { Terminal, RefreshCw, AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import { adminApiFetch } from '@/lib/admin-api';
+
+type LogItem = {
+    id: string;
+    model: string;
+    prompt: string;
+    status: string;
+    error: string | null;
+    createdAt: string;
+};
 
 export function SystemLogs() {
-    const [logs, setLogs] = useState<any[]>([]);
+    const [logs, setLogs] = useState<LogItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
-
-    const API_URL = "http://localhost:4000/api/v1/admin/analytics/logs";
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     const fetchLogs = async (silent = false) => {
         if (!silent) setIsLoading(true);
         setIsRefreshing(true);
         try {
-            const res = await fetch(API_URL);
-            if (res.ok) {
-                const data = await res.json();
-                setLogs(data);
-            }
+            const res = await adminApiFetch('/admin/analytics/logs');
+            const data = (await res.json()) as LogItem[];
+            setLogs(data);
+            setErrorMessage(null);
         } catch (e) {
             console.error("Failed to fetch logs", e);
+            setErrorMessage(e instanceof Error ? e.message : 'Failed to fetch logs');
         } finally {
             setIsLoading(false);
             setIsRefreshing(false);
@@ -87,6 +96,12 @@ export function SystemLogs() {
                     <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                 </button>
             </div>
+
+            {errorMessage ? (
+                <div className="rounded-lg border border-red-900/50 bg-red-500/10 px-4 py-3 text-sm text-red-300 relative z-10">
+                    {errorMessage}
+                </div>
+            ) : null}
 
             <div className="overflow-hidden rounded-lg border border-neutral-800 relative z-10">
                 <div className="max-h-[600px] overflow-y-auto custom-scrollbar">

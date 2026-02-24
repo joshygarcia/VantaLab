@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiKeysService } from './api-keys.service';
 import { Prisma } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { DeveloperRoleGuard } from '../auth/guards/developer-role.guard';
 
 @Controller('api/v1/admin/api-keys')
+@UseGuards(JwtAuthGuard, DeveloperRoleGuard)
 export class ApiKeysController {
     constructor(private readonly apiKeysService: ApiKeysService) { }
 

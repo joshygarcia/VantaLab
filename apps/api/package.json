@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npm run prisma:generate && ts-node-dev -r dotenv/config --respawn --transpile-only src/main.ts",
+    "dev": "ts-node-dev -r dotenv/config --respawn --transpile-only src/main.ts",
+    "dev:regen": "npm run prisma:generate && npm run dev",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "test": "jest --runInBand",
