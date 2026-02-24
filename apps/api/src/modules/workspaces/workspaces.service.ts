@@ -60,6 +60,34 @@ export class WorkspacesService {
         }
     }
 
+    private async assertSpaceCanvasAccess(spaceId: string, userWorkspaceIds: string[]) {
+        if (userWorkspaceIds.includes(spaceId)) {
+            return;
+        }
+
+        const customSpaces = await this.readCustomSpacesStore();
+        const matchedSpace = Object.values(customSpaces)
+            .flat()
+            .find((item) => item.id === spaceId);
+
+        if (!matchedSpace) {
+            throw new UnauthorizedException('User does not have access to this space');
+        }
+
+        if (userWorkspaceIds.includes(matchedSpace.ownerWorkspaceId)) {
+            return;
+        }
+
+        if (
+            matchedSpace.protection === 'team-shared' &&
+            matchedSpace.sharedWorkspaceIds.some((workspaceId) => userWorkspaceIds.includes(workspaceId))
+        ) {
+            return;
+        }
+
+        throw new UnauthorizedException('User does not have access to this space');
+    }
+
     private async uploadImageToKie(base64Data: string, fileName: string | undefined, apiKey: string) {
         if (!base64Data.startsWith('data:image/')) {
             throw new BadRequestException('Only image uploads are supported');
@@ -218,7 +246,7 @@ export class WorkspacesService {
     }
 
     async getWorkspaceCanvas(id: string, userWorkspaceIds: string[]) {
-        this.assertWorkspaceAccess(id, userWorkspaceIds);
+        await this.assertSpaceCanvasAccess(id, userWorkspaceIds);
 
         const workspace = await (this.prisma as any).workspace.findUnique({
             where: { id },
@@ -269,7 +297,7 @@ export class WorkspacesService {
             throw new UnauthorizedException('Missing authenticated user id');
         }
 
-        this.assertWorkspaceAccess(id, userWorkspaceIds);
+        await this.assertSpaceCanvasAccess(id, userWorkspaceIds);
 
         const canvasState: WorkspaceCanvasState = {
             nodes: payload.nodes,

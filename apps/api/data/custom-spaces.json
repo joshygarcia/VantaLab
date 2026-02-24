@@ -1,0 +1,13 @@
+{
+  "local": [
+    {
+      "id": "test-space-6c5c9557",
+      "ownerWorkspaceId": "local",
+      "name": "Test Space",
+      "description": "Custom workflow space",
+      "protection": "standard",
+      "sharedWorkspaceIds": [],
+      "createdAt": "2026-02-24T08:07:31.577Z"
+    }
+  ]
+}

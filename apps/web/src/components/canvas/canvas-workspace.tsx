@@ -543,45 +543,6 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const breadcrumbProjectLabel = workspaceMatch?.project.name ?? activeProject?.name ?? 'Projects';
   const breadcrumbWorkspaceLabel = workspaceMatch?.space.name
     ?? (activeSpace?.id === workspaceId ? activeSpace.name : workspaceId);
-  const localCanvasKey = `persona:canvas:${workspaceId}`;
-
-  const readLocalCanvas = useCallback(() => {
-    try {
-      const raw = window.localStorage.getItem(localCanvasKey);
-      if (!raw) {
-        return null;
-      }
-
-      const parsed = JSON.parse(raw) as {
-        nodes?: Node<NodeData>[];
-        edges?: Edge[];
-        viewport?: { x: number; y: number; zoom: number };
-      };
-
-      return {
-        nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
-        edges: Array.isArray(parsed.edges) ? parsed.edges : [],
-        viewport: parsed.viewport
-      };
-    } catch {
-      return null;
-    }
-  }, [localCanvasKey]);
-
-  const writeLocalCanvas = useCallback((graphNodes: Node<NodeData>[], graphEdges: Edge[], viewport: { x: number; y: number; zoom: number }) => {
-    try {
-      window.localStorage.setItem(
-        localCanvasKey,
-        JSON.stringify({
-          nodes: graphNodes,
-          edges: graphEdges,
-          viewport
-        })
-      );
-    } catch {
-      // Ignore local storage errors.
-    }
-  }, [localCanvasKey]);
 
   const serializeCanvas = useCallback((graphNodes: Node<NodeData>[], graphEdges: Edge[], viewport?: { x: number; y: number; zoom: number }) => {
     return JSON.stringify({
@@ -624,30 +585,10 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           return;
         }
 
-        const localSnapshot = readLocalCanvas();
-        if (localSnapshot) {
-          const fallbackNodes = localSnapshot.nodes;
-          const fallbackEdges = localSnapshot.edges;
-          setCanvas(fallbackNodes, fallbackEdges);
-
-          if (localSnapshot.viewport &&
-            typeof localSnapshot.viewport.x === 'number' &&
-            typeof localSnapshot.viewport.y === 'number' &&
-            typeof localSnapshot.viewport.zoom === 'number') {
-            viewportRef.current = localSnapshot.viewport;
-            reactFlow.setViewport(localSnapshot.viewport, { duration: 0 });
-          } else {
-            viewportRef.current = reactFlow.getViewport();
-          }
-
-          latestSavedGraphRef.current = serializeCanvas(fallbackNodes, fallbackEdges, viewportRef.current);
-          setCanvasError('Cloud sync unavailable. Loaded your local backup for this space.');
-        } else {
-          setCanvas([], []);
-          viewportRef.current = reactFlow.getViewport();
-          latestSavedGraphRef.current = serializeCanvas([], [], viewportRef.current);
-          setCanvasError('Cloud sync unavailable. Starting from a blank workspace.');
-        }
+        setCanvas([], []);
+        viewportRef.current = reactFlow.getViewport();
+        latestSavedGraphRef.current = serializeCanvas([], [], viewportRef.current);
+        setCanvasError('Unable to load saved space canvas. Starting from a blank workspace.');
       } finally {
         if (!cancelled) {
           setCanvasReady(true);
@@ -663,7 +604,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         clearTimeout(saveTimerRef.current);
       }
     };
-  }, [workspaceId, setCanvas, reactFlow, readLocalCanvas, serializeCanvas]);
+  }, [workspaceId, setCanvas, reactFlow, serializeCanvas]);
 
   useEffect(() => {
     document.body.classList.add('canvas-workspace-page');
@@ -691,8 +632,6 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     saveTimerRef.current = setTimeout(() => {
       void (async () => {
         try {
-          writeLocalCanvas(nodes, edges, viewport);
-
           await updateWorkspaceCanvas(workspaceId, {
             nodes: nodes as unknown as Record<string, unknown>[],
             edges: edges as unknown as Record<string, unknown>[],
@@ -702,7 +641,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           latestSavedGraphRef.current = serializedGraph;
           setCanvasError('');
         } catch {
-          setCanvasError('Cloud sync unavailable. Changes are saved locally for this space.');
+          setCanvasError('Unable to save changes for this space right now.');
         }
       })();
     }, 800);
@@ -712,7 +651,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         clearTimeout(saveTimerRef.current);
       }
     };
-  }, [canvasReady, edges, nodes, serializeCanvas, viewportVersion, workspaceId, writeLocalCanvas]);
+  }, [canvasReady, edges, nodes, serializeCanvas, viewportVersion, workspaceId]);
 
   useEffect(() => {
     const syncSidebarStateFromDom = () => {
