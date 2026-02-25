@@ -4,24 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import ReactFlow, { Background, Connection, Edge, MiniMap, Node, ReactFlowProvider, useReactFlow } from 'reactflow';
 import 'reactflow/dist/style.css';
+import '@reactflow/node-resizer/dist/style.css';
 import { NodeData, useCanvasStore } from '@/store/canvas-store';
 import { executeWorkflow, getJobStatus, getWorkspaceCanvas, subscribeToJobStatus, updateWorkspaceCanvas } from '@/lib/api';
 import { findProjectBySpaceId } from '@/lib/projects';
 import { useProjectContext } from '@/components/projects/project-context';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
-import { TextNode } from './nodes/TextNode';
-import { MediaGenNode } from './nodes/MediaGenNode';
-import { GroupNode } from './nodes/GroupNode';
-import { BaseNode } from './nodes/BaseNode';
+import { MainNode } from './nodes/MainNode';
+import { TextPromptNode } from './nodes/TextPromptNode';
 import { ImageGeneratorNode } from './nodes/ImageGeneratorNode';
-import { VideoGeneratorNode } from './nodes/VideoGeneratorNode';
-import { MultiShotPromptNode } from './nodes/MultiShotPromptNode';
-import { KlingElementsNode } from './nodes/KlingElementsNode';
-import { DownloadNode } from './nodes/DownloadNode';
-import { PromptListNode } from './nodes/PromptListNode';
-import { ImageListNode } from './nodes/ImageListNode';
-import { IdentityVaultNode } from './nodes/IdentityVaultNode';
+import { ConnectionEdge } from './ConnectionEdge';
 import { FloatingToolbar } from './FloatingToolbar';
 import { AddNodeType } from './add-node-menu';
 import { NodeContextMenu } from './NodeContextMenu';
@@ -42,18 +35,305 @@ import {
 } from 'lucide-react';
 
 const nodeTypes = {
-  text: TextNode,
-  media: MediaGenNode,
-  group: GroupNode,
-  base: BaseNode,
-  'image-generator': ImageGeneratorNode,
-  'video-generator': VideoGeneratorNode,
-  'multi-shot-prompt': MultiShotPromptNode,
-  'kling-elements': KlingElementsNode,
-  download: DownloadNode,
-  'prompt-list': PromptListNode,
-  'image-list': ImageListNode,
-  'identity-vault': IdentityVaultNode
+  main: MainNode,
+  'text-prompt': TextPromptNode,
+  'image-generator': ImageGeneratorNode
+};
+
+const edgeTypes = {
+  connection: ConnectionEdge
+};
+
+const MAIN_NODE_INPUT = { id: 'prompt-in', label: 'Input', type: 'prompt' } as const;
+const MAIN_NODE_OUTPUT = { id: 'prompt-out', label: 'Output', type: 'prompt' } as const;
+const TEXT_PROMPT_OUTPUT = { id: 'prompt-out', label: 'Prompt', type: 'prompt' } as const;
+const IMAGE_GENERATOR_PROMPT_INPUT = { id: 'prompt-in', label: 'Prompt', type: 'prompt' } as const;
+const IMAGE_GENERATOR_IMAGE_INPUT = { id: 'image-in', label: 'Image', type: 'image' } as const;
+const IMAGE_GENERATOR_OUTPUT = { id: 'image-out', label: 'Image', type: 'image' } as const;
+const DEFAULT_MAIN_NODE_SIZE = { width: 360, height: 320 } as const;
+const DEFAULT_TEXT_PROMPT_NODE_SIZE = { width: 360, height: 320 } as const;
+const DEFAULT_IMAGE_GENERATOR_NODE_SIZE = { width: 540, height: 560 } as const;
+const RUN_NODE_EVENT = 'persona:run-node';
+
+type RunNodeEventDetail = {
+  nodeId?: string;
+};
+
+const getFirstTextareaValue = (node: Node<NodeData>) => {
+  const firstTextarea = node.data.controls?.find((control) => control.type === 'textarea');
+  if (firstTextarea?.type === 'textarea') {
+    return firstTextarea.value;
+  }
+
+  if (typeof node.data.text === 'string') {
+    return node.data.text;
+  }
+
+  return '';
+};
+
+const buildCanonicalMainNode = (node: Node<NodeData>): Node<NodeData> => {
+  const textValue = getFirstTextareaValue(node);
+  const existingTextControl = node.data.controls?.find(
+    (control) => control.type === 'textarea' && control.id.startsWith('text_')
+  );
+  const textControlId =
+    existingTextControl?.type === 'textarea' ? existingTextControl.id : `text_${node.id}`;
+
+  return {
+    ...node,
+    type: 'main',
+    style: {
+      width: node.style?.width ?? DEFAULT_MAIN_NODE_SIZE.width,
+      height: node.style?.height ?? DEFAULT_MAIN_NODE_SIZE.height
+    },
+    data: {
+      title: 'Main Node',
+      label: 'Main Node',
+      icon: 'zap',
+      status: node.data.status ?? 'idle',
+      runnable: false,
+      text: textValue,
+      controls: [
+        {
+          type: 'textarea',
+          id: textControlId,
+          value: textValue,
+          placeholder: 'Enter node text...'
+        }
+      ],
+      inputs: [{ ...MAIN_NODE_INPUT }],
+      outputs: [{ ...MAIN_NODE_OUTPUT }]
+    }
+  };
+};
+
+const buildCanonicalTextPromptNode = (node: Node<NodeData>): Node<NodeData> => {
+  const textValue = getFirstTextareaValue(node);
+  const existingTextControl = node.data.controls?.find(
+    (control) => control.type === 'textarea' && control.id.startsWith('text_')
+  );
+  const textControlId =
+    existingTextControl?.type === 'textarea' ? existingTextControl.id : `text_prompt_${node.id}`;
+
+  return {
+    ...node,
+    type: 'text-prompt',
+    style: {
+      width: node.style?.width ?? DEFAULT_TEXT_PROMPT_NODE_SIZE.width,
+      height: node.style?.height ?? DEFAULT_TEXT_PROMPT_NODE_SIZE.height
+    },
+    data: {
+      title: 'Text Prompt',
+      label: 'Text Prompt',
+      icon: 'text',
+      status: node.data.status ?? 'idle',
+      runnable: false,
+      text: textValue,
+      controls: [
+        {
+          type: 'textarea',
+          id: textControlId,
+          value: textValue,
+          placeholder: 'Write your prompt...'
+        }
+      ],
+      inputs: [],
+      outputs: [{ ...TEXT_PROMPT_OUTPUT }]
+    }
+  };
+};
+
+const buildCanonicalImageGeneratorNode = (node: Node<NodeData>): Node<NodeData> => {
+  const controls = node.data.controls ?? [];
+
+  const promptControl =
+    controls.find((control) => control.type === 'textarea' && control.id.startsWith('prompt_')) ??
+    {
+      type: 'textarea' as const,
+      id: `prompt_${node.id}`,
+      value: getFirstTextareaValue(node),
+      placeholder: 'Describe the image you want to generate...'
+    };
+
+  const findSelect = (prefix: string) =>
+    controls.find((control) => control.type === 'select' && control.id.startsWith(prefix));
+
+  const modelControl = findSelect('model_') ?? {
+    type: 'select' as const,
+    id: `model_${node.id}`,
+    value: 'nano-banana-pro',
+    options: [
+      { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
+      { label: 'Z-Image', value: 'z-image' }
+    ]
+  };
+
+  const aspectControl = findSelect('aspect_') ?? {
+    type: 'select' as const,
+    id: `aspect_${node.id}`,
+    value: '1:1',
+    options: [
+      { label: '1:1', value: '1:1' },
+      { label: '4:3', value: '4:3' },
+      { label: '3:4', value: '3:4' },
+      { label: '16:9', value: '16:9' },
+      { label: '9:16', value: '9:16' }
+    ]
+  };
+
+  const resolutionControl = findSelect('res_') ?? {
+    type: 'select' as const,
+    id: `res_${node.id}`,
+    value: '1K',
+    options: [
+      { label: '1K', value: '1K' },
+      { label: '2K', value: '2K' },
+      { label: '4K', value: '4K' }
+    ]
+  };
+
+  const amountControl = findSelect('amount_') ?? {
+    type: 'select' as const,
+    id: `amount_${node.id}`,
+    value: '1',
+    options: [
+      { label: 'x1', value: '1' },
+      { label: 'x2', value: '2' },
+      { label: 'x3', value: '3' },
+      { label: 'x4', value: '4' }
+    ]
+  };
+
+  const outputFormatControl = findSelect('outfmt_') ?? {
+    type: 'select' as const,
+    id: `outfmt_${node.id}`,
+    value: 'png',
+    options: [
+      { label: 'PNG', value: 'png' },
+      { label: 'JPG', value: 'jpg' }
+    ]
+  };
+
+  return {
+    ...node,
+    type: 'image-generator',
+    style: {
+      width: node.style?.width ?? DEFAULT_IMAGE_GENERATOR_NODE_SIZE.width,
+      height: node.style?.height ?? DEFAULT_IMAGE_GENERATOR_NODE_SIZE.height
+    },
+    data: {
+      title: 'Image Generator',
+      label: 'Image Generator',
+      icon: 'image',
+      status: node.data.status ?? 'idle',
+      runnable: true,
+      controls: [promptControl, modelControl, aspectControl, resolutionControl, amountControl, outputFormatControl],
+      inputs: [{ ...IMAGE_GENERATOR_PROMPT_INPUT }, { ...IMAGE_GENERATOR_IMAGE_INPUT }],
+      outputs: [{ ...IMAGE_GENERATOR_OUTPUT }],
+      preview: node.data.preview ?? { type: 'placeholder', text: 'Describe the image you want to generate...' }
+    }
+  };
+};
+
+const isCanonicalMainNode = (node: Node<NodeData>) => {
+  if (node.type !== 'main') {
+    return false;
+  }
+
+  if (node.data.title !== 'Main Node' || node.data.label !== 'Main Node' || node.data.icon !== 'zap') {
+    return false;
+  }
+
+  const inputs = node.data.inputs ?? [];
+  if (inputs.length !== 1 || inputs[0]?.id !== MAIN_NODE_INPUT.id) {
+    return false;
+  }
+
+  const outputs = node.data.outputs ?? [];
+  if (outputs.length !== 1 || outputs[0]?.id !== MAIN_NODE_OUTPUT.id) {
+    return false;
+  }
+
+  const controls = node.data.controls ?? [];
+  if (controls.length !== 1) {
+    return false;
+  }
+
+  const onlyControl = controls[0];
+  if (onlyControl.type !== 'textarea') {
+    return false;
+  }
+
+  return onlyControl.id.startsWith('text_');
+};
+
+const isCanonicalTextPromptNode = (node: Node<NodeData>) => {
+  if (node.type !== 'text-prompt') {
+    return false;
+  }
+
+  if (node.data.title !== 'Text Prompt' || node.data.label !== 'Text Prompt' || node.data.icon !== 'text') {
+    return false;
+  }
+
+  const inputs = node.data.inputs ?? [];
+  if (inputs.length !== 0) {
+    return false;
+  }
+
+  const outputs = node.data.outputs ?? [];
+  if (outputs.length !== 1 || outputs[0]?.id !== TEXT_PROMPT_OUTPUT.id) {
+    return false;
+  }
+
+  const controls = node.data.controls ?? [];
+  if (controls.length !== 1) {
+    return false;
+  }
+
+  const onlyControl = controls[0];
+  if (onlyControl.type !== 'textarea') {
+    return false;
+  }
+
+  return onlyControl.id.startsWith('text_');
+};
+
+const isCanonicalImageGeneratorNode = (node: Node<NodeData>) => {
+  if (node.type !== 'image-generator') {
+    return false;
+  }
+
+  if (node.data.title !== 'Image Generator' || node.data.label !== 'Image Generator' || node.data.icon !== 'image') {
+    return false;
+  }
+
+  const inputs = node.data.inputs ?? [];
+  if (inputs.length !== 2) {
+    return false;
+  }
+
+  const hasPromptInput = inputs.some((input) => input.id === IMAGE_GENERATOR_PROMPT_INPUT.id);
+  const hasImageInput = inputs.some((input) => input.id === IMAGE_GENERATOR_IMAGE_INPUT.id);
+  if (!hasPromptInput || !hasImageInput) {
+    return false;
+  }
+
+  const outputs = node.data.outputs ?? [];
+  if (outputs.length !== 1 || outputs[0]?.id !== IMAGE_GENERATOR_OUTPUT.id) {
+    return false;
+  }
+
+  const controls = node.data.controls ?? [];
+  const hasPromptControl = controls.some((control) => control.type === 'textarea' && control.id.startsWith('prompt_'));
+  const hasModelControl = controls.some((control) => control.type === 'select' && control.id.startsWith('model_'));
+  const hasAspectControl = controls.some((control) => control.type === 'select' && control.id.startsWith('aspect_'));
+  const hasResolutionControl = controls.some((control) => control.type === 'select' && control.id.startsWith('res_'));
+  const hasAmountControl = controls.some((control) => control.type === 'select' && control.id.startsWith('amount_'));
+  const hasOutputFormatControl = controls.some((control) => control.type === 'select' && control.id.startsWith('outfmt_'));
+
+  return hasPromptControl && hasModelControl && hasAspectControl && hasResolutionControl && hasAmountControl && hasOutputFormatControl;
 };
 
 type CanvasWorkspaceProps = {
@@ -67,6 +347,11 @@ type ConnectionLike = {
   target?: string | null;
   sourceHandle?: string | null;
   targetHandle?: string | null;
+};
+
+type CanvasPoint = {
+  x: number;
+  y: number;
 };
 
 type KlingMultiPromptItem = {
@@ -529,7 +814,8 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const { broadcastNodePositions, broadcastEdges } = useRealtimeSync(workspaceId);
 
   const [nodeContextMenu, setNodeContextMenu] = useState<{ id: string; top: number; left: number } | null>(null);
-  const [paneContextMenu, setPaneContextMenu] = useState<{ top: number; left: number } | null>(null);
+  const [paneContextMenu, setPaneContextMenu] = useState<{ top: number; left: number; flowPosition: CanvasPoint } | null>(null);
+  const lastCanvasClickRef = useRef<CanvasPoint | null>(null);
 
   useEffect(() => {
     setWorkspaceId(workspaceId);
@@ -725,6 +1011,18 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     return inferPortTypeFromHandleId(handleId);
   };
 
+  const getConnectionType = (connection: ConnectionLike): PortType => {
+    const sourceNode = connection.source ? nodes.find((node) => node.id === connection.source) : undefined;
+    const targetNode = connection.target ? nodes.find((node) => node.id === connection.target) : undefined;
+    const sourceType = getPortType(sourceNode, connection.sourceHandle, 'outputs');
+    if (sourceType !== 'unknown') {
+      return sourceType;
+    }
+
+    const targetType = getPortType(targetNode, connection.targetHandle, 'inputs');
+    return targetType;
+  };
+
   const getNodeModel = (node: Node<NodeData> | undefined) => {
     const modelControl = node?.data.controls?.find(
       (control) => control.type === 'select' && control.id.startsWith('model_')
@@ -763,7 +1061,19 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     if (!isConnectionCompatible(params)) {
       return;
     }
-    connectEdge(params);
+    if (!params.source || !params.target) {
+      return;
+    }
+
+    const connectionType = getConnectionType(params);
+    connectEdge({
+      source: params.source,
+      target: params.target,
+      sourceHandle: params.sourceHandle ?? null,
+      targetHandle: params.targetHandle ?? null,
+      type: 'connection',
+      data: { connectionType }
+    });
   };
 
   const onNodeContextMenu = (event: React.MouseEvent, node: Node) => {
@@ -778,15 +1088,43 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     }
   };
 
+  const getFlowPointFromClient = (clientX: number, clientY: number): CanvasPoint => {
+    const maybeScreenToFlow = (reactFlow as unknown as { screenToFlowPosition?: (point: CanvasPoint) => CanvasPoint }).screenToFlowPosition;
+    if (typeof maybeScreenToFlow === 'function') {
+      return maybeScreenToFlow({ x: clientX, y: clientY });
+    }
+
+    return reactFlow.project({ x: clientX, y: clientY });
+  };
+
+  const getViewportCenterFlowPoint = (): CanvasPoint => {
+    const paneBounds = document.querySelector('.react-flow__pane')?.getBoundingClientRect();
+    if (!paneBounds) {
+      return { x: 0, y: 0 };
+    }
+
+    const centerX = paneBounds.left + paneBounds.width / 2;
+    const centerY = paneBounds.top + paneBounds.height / 2;
+    return getFlowPointFromClient(centerX, centerY);
+  };
+
   const onPaneContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
+    const flowPosition = getFlowPointFromClient(event.clientX, event.clientY);
+    lastCanvasClickRef.current = flowPosition;
     const pane = document.querySelector('.react-flow__pane')?.getBoundingClientRect();
     if (pane) {
       setPaneContextMenu({
         top: event.clientY - pane.top,
-        left: event.clientX - pane.left
+        left: event.clientX - pane.left,
+        flowPosition
       });
     }
+  };
+
+  const onPaneClick = (event: React.MouseEvent) => {
+    lastCanvasClickRef.current = getFlowPointFromClient(event.clientX, event.clientY);
+    closeContextMenus();
   };
 
   const closeContextMenus = () => {
@@ -806,77 +1144,62 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     setFuture([]);
   };
 
-  const buildNode = (kind: AddNodeType | 'comment'): Node<NodeData> => {
+  const buildNode = (kind: AddNodeType, basePosition?: CanvasPoint): Node<NodeData> => {
     const idSeed = `${Date.now()}_${nodeCounterRef.current}`;
     nodeCounterRef.current += 1;
-    const index = nodes.length + nodeCounterRef.current;
+    const positionSource = basePosition ?? lastCanvasClickRef.current ?? getViewportCenterFlowPoint();
     const position = {
-      x: 180 + (index % 6) * 64,
-      y: 100 + (index % 4) * 76
+      x: positionSource.x,
+      y: positionSource.y
     };
 
-    if (kind === 'comment') {
-      return {
-        id: `comment_${idSeed}`,
-        type: 'base',
-        position,
-        data: {
-          title: 'Sticky Comment',
-          icon: 'align-left',
-          controls: [{ type: 'textarea', id: `comment_text_${idSeed}`, value: 'Drop context for your future self.' }]
-        }
-      };
-    }
-
     const templates: Record<AddNodeType, Omit<NodeData, 'status'>> = {
-      text: {
+      'text-prompt': {
         title: 'Text Prompt',
         label: 'Text Prompt',
-        text: 'Dream up a scene with bold visual direction.',
-        outputs: [{ id: 'prompt-out', label: 'Prompt', type: 'prompt' }]
-      },
-      'prompt-list': {
-        title: 'Prompt List',
-        icon: 'align-left',
-        controls: [{ type: 'textarea', id: 'prompt_item_0', value: 'Hero shot prompt' }],
-        outputs: [{ id: 'prompt-out', label: 'Prompt', type: 'prompt' }]
-      },
-      'image-list': {
-        title: 'Image List',
-        icon: 'align-left',
-        controls: [{ type: 'textarea', id: 'image_item_0', value: '' }],
-        outputs: [{ id: 'image-out', label: 'Image', type: 'image' }]
+        icon: 'text',
+        runnable: false,
+        controls: [
+          {
+            type: 'textarea',
+            id: `text_prompt_${idSeed}`,
+            value: '',
+            placeholder: 'Write your prompt...'
+          }
+        ],
+        outputs: [{ ...TEXT_PROMPT_OUTPUT }]
       },
       'image-generator': {
-        title: 'Image Generator #25',
+        title: 'Image Generator',
+        label: 'Image Generator',
         icon: 'image',
-        inputs: [
-          { id: 'prompt-in', label: 'Prompt', type: 'prompt' },
-          { id: 'image-in', label: 'Image', type: 'image' }
-        ],
-        outputs: [{ id: 'image-out', label: 'Image', type: 'image' }],
-        preview: { type: 'placeholder', text: '' },
+        runnable: true,
         controls: [
-          { type: 'textarea', id: `prompt_${idSeed}`, value: '' },
+          {
+            type: 'textarea',
+            id: `prompt_${idSeed}`,
+            value: '',
+            placeholder: 'Describe the image you want to generate...'
+          },
           {
             type: 'select',
             id: `model_${idSeed}`,
             value: 'nano-banana-pro',
             options: [
               { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
-              { label: 'Z-Image (Text only)', value: 'z-image' }
+              { label: 'Z-Image', value: 'z-image' }
             ]
           },
           {
             type: 'select',
             id: `aspect_${idSeed}`,
-            value: '16:9',
+            value: '1:1',
             options: [
-              { label: '16:9', value: '16:9' },
-              { label: '9:16', value: '9:16' },
               { label: '1:1', value: '1:1' },
               { label: '4:3', value: '4:3' },
-              { label: '3:4', value: '3:4' }
+              { label: '3:4', value: '3:4' },
+              { label: '16:9', value: '16:9' },
+              { label: '9:16', value: '9:16' }
             ]
           },
           {
@@ -899,152 +1222,20 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
               { label: 'x3', value: '3' },
               { label: 'x4', value: '4' }
             ]
+          },
+          {
+            type: 'select',
+            id: `outfmt_${idSeed}`,
+            value: 'png',
+            options: [
+              { label: 'PNG', value: 'png' },
+              { label: 'JPG', value: 'jpg' }
+            ]
           }
-        ]
-      },
-      'video-generator': {
-        title: 'Motion Burst',
-        icon: 'video',
-        inputs: [
-          { id: 'prompt-in', label: 'Prompt', type: 'prompt' },
-          { id: 'image-in', label: 'Image', type: 'image' },
-          { id: 'multi-prompt-in', label: 'Multi-shot', type: 'prompt' },
-          { id: 'kling-elements-in', label: 'Elements', type: 'asset' }
         ],
-        outputs: [{ id: 'video-out', label: 'Video', type: 'video' }],
-        preview: { type: 'placeholder', text: '' },
-        controls: [
-          { type: 'textarea', id: `prompt_${idSeed}`, value: '' },
-          {
-            type: 'select',
-            id: `model_${idSeed}`,
-            value: 'kling-3.0/video',
-            options: [
-              { label: 'Kling 3.0 Video', value: 'kling-3.0/video' },
-              { label: 'Veo 3.1', value: 'veo-3.1' }
-            ]
-          },
-          {
-            type: 'select',
-            id: `aspect_${idSeed}`,
-            value: '16:9',
-            options: [
-              { label: '16:9', value: '16:9' },
-              { label: '9:16', value: '9:16' },
-              { label: '1:1', value: '1:1' }
-            ]
-          },
-          {
-            type: 'select',
-            id: `duration_${idSeed}`,
-            value: '5',
-            options: [
-              { label: '3s', value: '3' },
-              { label: '4s', value: '4' },
-              { label: '5s', value: '5' },
-              { label: '6s', value: '6' },
-              { label: '7s', value: '7' },
-              { label: '8s', value: '8' },
-              { label: '9s', value: '9' },
-              { label: '10s', value: '10' },
-              { label: '11s', value: '11' },
-              { label: '12s', value: '12' },
-              { label: '13s', value: '13' },
-              { label: '14s', value: '14' },
-              { label: '15s', value: '15' }
-            ]
-          },
-          {
-            type: 'select',
-            id: `mode_${idSeed}`,
-            value: 'pro',
-            options: [
-              { label: 'Pro', value: 'pro' },
-              { label: 'Std', value: 'std' }
-            ]
-          },
-          {
-            type: 'select',
-            id: `sound_${idSeed}`,
-            value: 'false',
-            options: [
-              { label: 'Sound off', value: 'false' },
-              { label: 'Sound on', value: 'true' }
-            ]
-          },
-          {
-            type: 'select',
-            id: `multi_shots_${idSeed}`,
-            value: 'false',
-            options: [
-              { label: 'Single shot', value: 'false' },
-              { label: 'Multi-shot', value: 'true' }
-            ]
-          },
-          {
-            type: 'textarea',
-            id: `multi_prompt_${idSeed}`,
-            value: 'Aerial sweep over the skyline at sunset | 3\nClose-up of neon reflections in rain puddles | 2'
-          }
-        ]
-      },
-      download: {
-        title: 'Download',
-        icon: 'settings',
-        inputs: [
-          { id: 'image-in', label: 'Image', type: 'image' },
-          { id: 'video-in', label: 'Video', type: 'video' }
-        ]
-      },
-      assistant: {
-        title: 'Assistant',
-        icon: 'zap',
-        inputs: [{ id: 'prompt-in', label: 'Prompt', type: 'prompt' }],
-        outputs: [{ id: 'prompt-out', label: 'Response', type: 'prompt' }],
-        controls: [{ type: 'textarea', id: `assistant_text_${idSeed}`, value: 'You are a creative co-pilot. Keep suggestions concise.' }]
-      },
-      upscaler: {
-        title: 'Image Upscaler',
-        icon: 'image',
-        inputs: [{ id: 'image-in', label: 'Image', type: 'image' }],
-        outputs: [{ id: 'image-out', label: 'Image', type: 'image' }],
-        preview: { type: 'placeholder', text: 'Waiting for an image to upscale.' }
-      },
-      list: {
-        title: 'List',
-        icon: 'align-left',
-        controls: [{ type: 'textarea', id: `list_text_${idSeed}`, value: '- Shot idea one\n- Shot idea two\n- Shot idea three' }],
-        outputs: [{ id: 'items-out', label: 'Items', type: 'items' }]
-      },
-      upload: {
-        title: 'Upload',
-        icon: 'settings',
-        outputs: [{ id: 'asset-out', label: 'Asset', type: 'asset' }],
-        preview: { type: 'placeholder', text: 'Upload support is coming next.' }
-      },
-      assets: {
-        title: 'Assets',
-        icon: 'settings',
-        outputs: [{ id: 'asset-out', label: 'Asset', type: 'asset' }],
-        preview: { type: 'placeholder', text: 'Your asset library will appear here.' }
-      },
-      inspiration: {
-        title: 'Find Inspiration',
-        icon: 'text',
-        controls: [{ type: 'textarea', id: `inspiration_text_${idSeed}`, value: 'Search references: moody cyberpunk streets, neon rain, dramatic low-angle.' }],
-        outputs: [{ id: 'prompt-out', label: 'References', type: 'prompt' }]
-      },
-      'identity-vault': {
-        title: 'Identity Vault',
-        outputs: [
-          { id: 'image-out', label: 'Seed Images', type: 'image' },
-          { id: 'prompt-out', label: 'Style', type: 'prompt' }
-        ],
-        controls: [
-          { type: 'textarea', id: `seed_images_${idSeed}`, value: '' },
-          { type: 'textarea', id: `brand_colors_${idSeed}`, value: '' },
-          { type: 'textarea', id: `negative_${idSeed}`, value: '' }
-        ]
+        inputs: [{ ...IMAGE_GENERATOR_PROMPT_INPUT }, { ...IMAGE_GENERATOR_IMAGE_INPUT }],
+        outputs: [{ ...IMAGE_GENERATOR_OUTPUT }],
+        preview: { type: 'placeholder', text: 'Describe the image you want to generate...' }
       }
     };
 
@@ -1052,17 +1243,9 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
 
     return {
       id: `node_${idSeed}`,
-      type:
-        kind === 'image-generator' ||
-          kind === 'video-generator' ||
-          kind === 'text' ||
-          kind === 'download' ||
-          kind === 'prompt-list' ||
-          kind === 'image-list' ||
-          kind === 'identity-vault'
-          ? kind
-          : 'base',
+      type: kind,
       position,
+      style: kind === 'image-generator' ? { ...DEFAULT_IMAGE_GENERATOR_NODE_SIZE } : { ...DEFAULT_TEXT_PROMPT_NODE_SIZE },
       data: {
         ...template,
         status: 'idle'
@@ -1563,14 +1746,115 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     }
   }, [edges, nodes, setCanvas]);
 
-  const handleAddNode = (type: AddNodeType) => {
-    rememberGraph();
-    setCanvas([...nodes, buildNode(type)], edges);
-  };
+  useEffect(() => {
+    let hasChanges = false;
 
-  const handleAddComment = () => {
+    const normalizedNodes = nodes.map((node) => {
+      if (isCanonicalMainNode(node) || isCanonicalTextPromptNode(node) || isCanonicalImageGeneratorNode(node)) {
+        return node;
+      }
+
+      hasChanges = true;
+      if (node.type === 'text-prompt' || node.type === 'text') {
+        return buildCanonicalTextPromptNode(node);
+      }
+
+      if (
+        node.type === 'image-generator' ||
+        (node.type === 'base' && node.data.icon === 'image')
+      ) {
+        return buildCanonicalImageGeneratorNode(node);
+      }
+
+      return buildCanonicalMainNode(node);
+    });
+
+    const normalizedNodeById = new Map(normalizedNodes.map((node) => [node.id, node]));
+    const normalizedEdges = edges
+      .filter((edge) => {
+        const sourceNode = normalizedNodeById.get(edge.source);
+        const targetNode = normalizedNodeById.get(edge.target);
+
+        if (!sourceNode || !targetNode) {
+          hasChanges = true;
+          return false;
+        }
+
+        // Text Prompt is output-only, so inbound edges are invalid.
+        if (targetNode.type === 'text-prompt') {
+          hasChanges = true;
+          return false;
+        }
+
+        return true;
+      })
+      .map((edge) => {
+        const sourceNode = normalizedNodeById.get(edge.source);
+        const targetNode = normalizedNodeById.get(edge.target);
+        if (!sourceNode || !targetNode) {
+          hasChanges = true;
+          return edge;
+        }
+
+        const normalizedSourceHandle =
+          sourceNode.type === 'text-prompt'
+            ? TEXT_PROMPT_OUTPUT.id
+            : sourceNode.type === 'image-generator'
+              ? IMAGE_GENERATOR_OUTPUT.id
+              : MAIN_NODE_OUTPUT.id;
+
+        const normalizedTargetHandle =
+          targetNode.type === 'image-generator'
+            ? edge.targetHandle === IMAGE_GENERATOR_IMAGE_INPUT.id
+              ? IMAGE_GENERATOR_IMAGE_INPUT.id
+              : IMAGE_GENERATOR_PROMPT_INPUT.id
+            : MAIN_NODE_INPUT.id;
+
+        const connectionType = getConnectionType({
+          source: sourceNode.id,
+          target: targetNode.id,
+          sourceHandle: normalizedSourceHandle,
+          targetHandle: normalizedTargetHandle
+        });
+        const currentConnectionType =
+          typeof edge.data === 'object' && edge.data !== null && 'connectionType' in edge.data
+            ? (edge.data.connectionType as PortType | undefined)
+            : undefined;
+
+        if (
+          edge.sourceHandle === normalizedSourceHandle &&
+          edge.targetHandle === normalizedTargetHandle &&
+          edge.type === 'connection' &&
+          currentConnectionType === connectionType
+        ) {
+          return edge;
+        }
+
+        hasChanges = true;
+        return {
+          ...edge,
+          type: 'connection',
+          sourceHandle: normalizedSourceHandle,
+          targetHandle: normalizedTargetHandle,
+          data: {
+            ...(typeof edge.data === 'object' && edge.data !== null ? edge.data : {}),
+            connectionType
+          }
+        };
+      });
+
+    if (normalizedEdges.length !== edges.length) {
+      hasChanges = true;
+    }
+
+    if (hasChanges) {
+      setCanvas(normalizedNodes, normalizedEdges);
+    }
+  }, [edges, nodes, setCanvas]);
+
+  const handleAddNode = (type: AddNodeType, position?: CanvasPoint) => {
     rememberGraph();
-    setCanvas([...nodes, buildNode('comment')], edges);
+    setCanvas([...nodes, buildNode(type, position)], edges);
   };
 
   const handleCutSelection = () => {
@@ -1675,27 +1959,41 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     (node.type === 'media' && node.data.type === 'video') ||
     (node.type === 'base' && node.data.icon === 'video');
 
-  const selectedMediaNode = useMemo(() => {
-    const selected = nodes.find((node) => node.selected && isRunnableMediaNode(node));
-    if (selected) {
-      return selected;
+  const getRunnableNode = (nodeId?: string) => {
+    if (nodeId) {
+      const requestedNode = nodes.find((node) => node.id === nodeId);
+      if (requestedNode && isRunnableMediaNode(requestedNode)) {
+        return requestedNode;
+      }
+      return null;
     }
-    return nodes.find((node) => isRunnableMediaNode(node));
-  }, [nodes]);
 
-  const onRun = async () => {
-    if (!selectedMediaNode || running) {
+    const selectedNode = nodes.find((node) => node.selected && isRunnableMediaNode(node));
+    if (selectedNode) {
+      return selectedNode;
+    }
+
+    return nodes.find((node) => isRunnableMediaNode(node)) ?? null;
+  };
+
+  const onRun = async (requestedNodeId?: string) => {
+    if (running) {
       return;
     }
 
-    const isImageGen = selectedMediaNode.type === 'image-generator';
+    const runnableNode = getRunnableNode(requestedNodeId);
+    if (!runnableNode) {
+      return;
+    }
+
+    const isImageGen = runnableNode.type === 'image-generator';
     const isVideoGen =
-      selectedMediaNode.type === 'video-generator' ||
-      (selectedMediaNode.type === 'media' && selectedMediaNode.data.type === 'video') ||
-      (selectedMediaNode.type === 'base' && selectedMediaNode.data.icon === 'video');
+      runnableNode.type === 'video-generator' ||
+      (runnableNode.type === 'media' && runnableNode.data.type === 'video') ||
+      (runnableNode.type === 'base' && runnableNode.data.icon === 'video');
 
     let modelToUse = isImageGen ? 'nano-banana-pro' : 'kling-3.0/video';
-    const modelControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('model_'));
+    const modelControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('model_'));
     if (modelControl?.value) {
       modelToUse = modelControl.value;
     }
@@ -1704,7 +2002,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       edges
         .filter(
           (candidate) =>
-            candidate.target === selectedMediaNode.id &&
+            candidate.target === runnableNode.id &&
             handleIdMatches(candidate.targetHandle, targetHandleIds)
         )
         .map((edge) => nodes.find((node) => node.id === edge.source))
@@ -1738,7 +2036,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     const connectedPromptSections = extractPromptListSectionsFromNode(connectedPromptNode);
 
     let promptText = 'Cinematic industrial shot with mannequin silhouette';
-    const promptControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('prompt_'));
+    const promptControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('prompt_'));
     if (connectedPromptSections.length > 0) {
       promptText = connectedPromptSections[0];
     } else if (promptControl?.value) {
@@ -1749,7 +2047,12 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         promptText = connectedPrompt;
       } else {
         // Legacy fallback for older video nodes that only read from text nodes.
-        const promptNode = nodes.find((n) => n.type === 'text' || (n.type === 'base' && n.data.icon === 'text'));
+        const promptNode = nodes.find(
+          (n) =>
+            n.type === 'text-prompt' ||
+            n.type === 'text' ||
+            (n.type === 'base' && n.data.icon === 'text')
+        );
         const fallbackPrompt = extractPrompt(promptNode);
         if (fallbackPrompt) {
           promptText = fallbackPrompt;
@@ -1758,22 +2061,28 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     }
 
     let aspectRatio = '16:9';
-    const aspectControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('aspect_'));
+    const aspectControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('aspect_'));
     if (aspectControl?.value) {
       aspectRatio = aspectControl.value;
     }
 
     let resolution = '1K';
     let amount = 1;
+    let outputFormat: 'png' | 'jpg' = 'png';
     if (isImageGen) {
-      const resControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('res_'));
+      const resControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('res_'));
       if (resControl?.value) {
         resolution = resControl.value;
       }
 
-      const amountControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('amount_'));
+      const amountControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('amount_'));
       if (amountControl?.value) {
         amount = parseInt(amountControl.value, 10) || 1;
+      }
+
+      const outputFormatControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('outfmt_'));
+      if (outputFormatControl?.value === 'png' || outputFormatControl?.value === 'jpg') {
+        outputFormat = outputFormatControl.value;
       }
     }
 
@@ -1789,20 +2098,20 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     const referenceImageUrl = extractImageUrl(connectedImageNode);
 
     if (isVideoGen) {
-      const durationControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('duration_'));
+      const durationControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('duration_'));
       if (durationControl?.value) {
         duration = durationControl.value;
       }
 
-      const modeControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('mode_'));
+      const modeControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('mode_'));
       if (modeControl?.value === 'std' || modeControl?.value === 'pro') {
         mode = modeControl.value;
       }
 
-      const soundControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('sound_'));
+      const soundControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('sound_'));
       sound = soundControl?.value === 'true';
 
-      const multiShotsControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('multi_shots_'));
+      const multiShotsControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('multi_shots_'));
       const connectedMultiPromptNode = getConnectedSourceNode(['multi-prompt-in', 'multi_prompt_in']);
       const connectedMultiPromptShots = extractMultiPromptFromNode(connectedMultiPromptNode);
       multiShots = modelToUse === 'kling-3.0/video' && (
@@ -1810,7 +2119,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         connectedMultiPromptShots.length > 0
       );
 
-      const multiPromptControl = selectedMediaNode.data?.controls?.find((c: any) => c.id.startsWith('multi_prompt_'));
+      const multiPromptControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('multi_prompt_'));
       if (connectedMultiPromptShots.length > 0) {
         multiPrompt = connectedMultiPromptShots;
       } else {
@@ -1848,6 +2157,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       if (isImageGen) {
         parameters.resolution = resolution;
         parameters.amount = amount;
+        parameters.outputFormat = outputFormat;
         if (iterationReferenceImageUrl) {
           parameters.referenceImageUrl = iterationReferenceImageUrl;
         }
@@ -1877,7 +2187,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     ) => {
       const executeResult = await executeWorkflow({
         workspaceId,
-        nodeId: selectedMediaNode.id,
+        nodeId: runnableNode.id,
         model: modelToUse,
         parameters
       });
@@ -1956,8 +2266,8 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     };
 
     setRunning(true);
-    clearNodeResultMedia(selectedMediaNode.id);
-    markNode(selectedMediaNode.id, 'processing');
+    clearNodeResultMedia(runnableNode.id);
+    markNode(runnableNode.id, 'processing');
 
     try {
       let lastMediaUrl: string | undefined;
@@ -1972,21 +2282,37 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         const mediaUrl = await runSingleWorkflow(iterationParameters);
         if (mediaUrl) {
           lastMediaUrl = mediaUrl;
-          appendNodeResultMedia(selectedMediaNode.id, { type: resultMediaType, url: mediaUrl });
+          appendNodeResultMedia(runnableNode.id, { type: resultMediaType, url: mediaUrl });
         }
 
         if (batchIndex < batchCount - 1) {
-          markNode(selectedMediaNode.id, 'processing', lastMediaUrl);
+          markNode(runnableNode.id, 'processing', lastMediaUrl);
         }
       }
 
-      markNode(selectedMediaNode.id, 'succeeded', lastMediaUrl);
+      markNode(runnableNode.id, 'succeeded', lastMediaUrl);
     } catch {
-      markNode(selectedMediaNode.id, 'failed');
+      markNode(runnableNode.id, 'failed');
     } finally {
       setRunning(false);
     }
   };
+
+  useEffect(() => {
+    const onRunNode = (event: Event) => {
+      const customEvent = event as CustomEvent<RunNodeEventDetail>;
+      const nodeId = customEvent.detail?.nodeId;
+      if (!nodeId) {
+        return;
+      }
+      void onRun(nodeId);
+    };
+
+    window.addEventListener(RUN_NODE_EVENT, onRunNode as EventListener);
+    return () => {
+      window.removeEventListener(RUN_NODE_EVENT, onRunNode as EventListener);
+    };
+  }, [onRun]);
 
   const userMenuItemClass = 'w-full rounded-lg border border-transparent px-2.5 py-2 text-left text-sm text-slate-200 transition hover:border-slate-700/70 hover:bg-slate-800/70';
 
@@ -1996,7 +2322,9 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         <button
           type="button"
           className="rounded-lg bg-sky-700 px-3 py-2 font-semibold text-white disabled:bg-slate-500"
-          onClick={onRun}
+          onClick={() => {
+            void onRun();
+          }}
           disabled={running}
           tabIndex={-1}
         >
@@ -2205,6 +2533,8 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           edges={edges}
           proOptions={{ hideAttribution: true }}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          defaultEdgeOptions={{ type: 'connection' }}
           onNodesChange={(changes) => {
             setNodes(changes);
             broadcastNodePositions(changes);
@@ -2225,6 +2555,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           panOnDrag={activeTool === 'draw'}
           selectionOnDrag={activeTool === 'select'}
           onNodeContextMenu={onNodeContextMenu}
+          onPaneClick={onPaneClick}
           onPaneContextMenu={onPaneContextMenu}
           fitView
         >
@@ -2243,7 +2574,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
               top={paneContextMenu.top}
               left={paneContextMenu.left}
               onAddNode={(type: AddNodeType) => {
-                handleAddNode(type);
+                handleAddNode(type, paneContextMenu.flowPosition);
               }}
               onClose={() => setPaneContextMenu(null)}
             />

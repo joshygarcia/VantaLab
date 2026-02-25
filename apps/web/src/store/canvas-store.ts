@@ -1,7 +1,7 @@
 import { Edge, EdgeChange, Node, NodeChange, addEdge, applyEdgeChanges, applyNodeChanges } from 'reactflow';
 import { create } from 'zustand';
 
-import { BaseNodeData } from '@/components/canvas/nodes/BaseNode';
+import { BaseNodeData } from '@/components/canvas/nodes/MainNode';
 
 type NodeStatus = 'idle' | 'processing' | 'succeeded' | 'failed';
 
@@ -41,6 +41,48 @@ type CanvasState = {
 const initialNodes: Node<NodeData>[] = [];
 
 const initialEdges: Edge[] = [];
+
+const MIN_NODE_WIDTH = 280;
+const MIN_NODE_HEIGHT = 220;
+
+const parseAspectRatio = (value: unknown): number | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const parts = value.split(':');
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const width = Number(parts[0]);
+  const height = Number(parts[1]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return width / height;
+};
+
+const fitSizeToAspect = (baseWidth: number, baseHeight: number, ratio: number) => {
+  let width = Math.max(baseWidth, MIN_NODE_WIDTH);
+  let height = width / ratio;
+
+  if (height < MIN_NODE_HEIGHT) {
+    height = MIN_NODE_HEIGHT;
+    width = height * ratio;
+  }
+
+  if (width < MIN_NODE_WIDTH) {
+    width = MIN_NODE_WIDTH;
+    height = width / ratio;
+  }
+
+  return {
+    width: Math.round(width),
+    height: Math.round(height)
+  };
+};
 
 export const useCanvasStore = create<CanvasState>((set) => ({
   workspaceId: null,
@@ -102,7 +144,37 @@ export const useCanvasStore = create<CanvasState>((set) => ({
             ? { ...c, value }
             : c
         );
-        return { ...node, data: { ...node.data, controls } };
+        const isAspectControlUpdate =
+          typeof controlIdPrefix === 'string' &&
+          (controlIdPrefix.startsWith('aspect_') || controlIdPrefix === 'aspect');
+        const isMediaNode =
+          node.data.icon === 'image' ||
+          node.data.icon === 'video' ||
+          node.data.type === 'image' ||
+          node.data.type === 'video';
+
+        if (!isAspectControlUpdate || !isMediaNode) {
+          return { ...node, data: { ...node.data, controls } };
+        }
+
+        const ratio = parseAspectRatio(value);
+        if (!ratio) {
+          return { ...node, data: { ...node.data, controls } };
+        }
+
+        const currentWidth = typeof node.style?.width === 'number' ? node.style.width : MIN_NODE_WIDTH;
+        const currentHeight = typeof node.style?.height === 'number' ? node.style.height : MIN_NODE_HEIGHT;
+        const resized = fitSizeToAspect(currentWidth, currentHeight, ratio);
+
+        return {
+          ...node,
+          style: {
+            ...(node.style ?? {}),
+            width: resized.width,
+            height: resized.height
+          },
+          data: { ...node.data, controls }
+        };
       })
     })),
   clearNodeResultMedia: (nodeId) =>

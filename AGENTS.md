@@ -1,3 +1,13 @@
+---
+description: 
+alwaysApply: true
+---
+
+---
+description: 
+alwaysApply: true
+---
+
 # AGENTS.md
 
 Guidance for autonomous coding agents working in `Persona`.
