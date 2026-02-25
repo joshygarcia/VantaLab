@@ -2,68 +2,68 @@ type WorkflowParameters = {
   aspectRatio?: string;
   amount?: number;
   duration?: string;
-  klingElements?: Array<unknown>;
   mode?: 'std' | 'pro' | string;
-  multiShots?: boolean;
-  outputFormat?: string;
   resolution?: string;
-  sound?: boolean;
 };
 
-const IMAGE_MODEL_BASE_COST: Record<string, number> = {
-  'nano-banana-pro': 8,
-  'nano-banana': 6,
-  'z-image': 5
+// Based on "Image Model Credit Pricing Spreadsheet.csv":
+// - Qwen z-image, text-to-image, 1.0s: 0.8 per image
+// - Google nano banana pro, 1/2K: 18.0 per image
+// - Google nano banana pro, 4K: 24.0 per image
+// - Google nano banana, text-to-image: 4.0 per image
+const IMAGE_COST_PER_IMAGE: Record<'z-image' | 'nano-banana' | 'nano-banana-pro', (resolution?: string) => number> = {
+  'z-image': () => 0.8,
+  'nano-banana': () => 4,
+  'nano-banana-pro': (resolution) => (resolution === '4K' ? 24 : 18)
 };
 
-const VIDEO_MODEL_BASE_COST: Record<string, number> = {
-  'kling-3.0/video': 22,
-  'veo-3.1': 30
+// Based on "Video Generation Model Pricing Spreadsheet.csv":
+// - Google veo 3.1, text-to-video, Fast: 60.0 per video
+// - Google veo 3.1, text-to-video, Quality: 250.0 per video
+// - kling 2.5 turbo, text-to-video, Turbo Pro-5.0s: 42.0 per video
+// - kling 2.5 turbo, text-to-video, Turbo Pro-10.0s: 84.0 per video
+const VEO_31_FAST_COST = 60;
+const VEO_31_QUALITY_COST = 250;
+const KLING_TURBO_COST_PER_SECOND = 8.4; // 42 / 5 and 84 / 10
+
+const MIN_DURATION_SECONDS = 3;
+const MAX_DURATION_SECONDS = 15;
+const DEFAULT_DURATION_SECONDS = 5;
+
+const normalizeAmount = (amount?: number): number => {
+  if (!Number.isFinite(amount) || (amount ?? 0) <= 0) {
+    return 1;
+  }
+
+  return Math.min(8, Math.max(1, Math.round(amount as number)));
 };
 
-const RESOLUTION_MULTIPLIER: Record<string, number> = {
-  '1K': 1,
-  '2K': 1.8,
-  '4K': 3
+const normalizeDurationSeconds = (duration?: string): number => {
+  const parsed = Number.parseInt(duration ?? `${DEFAULT_DURATION_SECONDS}`, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_DURATION_SECONDS;
+  }
+
+  return Math.min(MAX_DURATION_SECONDS, Math.max(MIN_DURATION_SECONDS, parsed));
 };
 
-const ASPECT_RATIO_MULTIPLIER: Record<string, number> = {
-  '1:1': 1,
-  '4:3': 1.08,
-  '3:4': 1.08,
-  '16:9': 1.16,
-  '9:16': 1.16
-};
+const finalizeCredits = (value: number): number => Math.max(1, Math.ceil(value));
 
 export function calculateWorkflowCreditCost(model: string, parameters: WorkflowParameters): number {
-  if (model in IMAGE_MODEL_BASE_COST) {
-    const base = IMAGE_MODEL_BASE_COST[model] ?? 6;
-    const resolutionMultiplier = RESOLUTION_MULTIPLIER[parameters.resolution ?? '1K'] ?? 1;
-    const aspectMultiplier = ASPECT_RATIO_MULTIPLIER[parameters.aspectRatio ?? '1:1'] ?? 1.08;
-    const amount = Number.isFinite(parameters.amount) && (parameters.amount ?? 0) > 0
-      ? Math.min(8, Math.max(1, Math.round(parameters.amount as number)))
-      : 1;
-
-    return Math.max(1, Math.ceil(base * resolutionMultiplier * aspectMultiplier * amount));
+  if (model === 'z-image' || model === 'nano-banana' || model === 'nano-banana-pro') {
+    const amount = normalizeAmount(parameters.amount);
+    const perImageCost = IMAGE_COST_PER_IMAGE[model](parameters.resolution);
+    return finalizeCredits(perImageCost * amount);
   }
 
-  if (model in VIDEO_MODEL_BASE_COST) {
-    const base = VIDEO_MODEL_BASE_COST[model] ?? 20;
-    const duration = Number.parseInt(parameters.duration ?? '5', 10);
-    const durationMultiplier = Number.isFinite(duration) && duration > 0
-      ? Math.min(3, Math.max(0.8, duration / 5))
-      : 1;
-    const modeMultiplier = parameters.mode === 'pro' ? 1.3 : 1;
-    const multiShotMultiplier = parameters.multiShots ? 1.2 : 1;
-    const soundMultiplier = parameters.sound ? 1.05 : 1;
-    const elementsCount = Array.isArray(parameters.klingElements) ? parameters.klingElements.length : 0;
-    const elementsCost = elementsCount * 2;
-
-    return Math.max(
-      1,
-      Math.ceil(base * durationMultiplier * modeMultiplier * multiShotMultiplier * soundMultiplier + elementsCost)
-    );
+  if (model === 'veo-3.1') {
+    return finalizeCredits(parameters.mode === 'pro' ? VEO_31_QUALITY_COST : VEO_31_FAST_COST);
   }
 
-  return 1;
+  if (model === 'kling-3.0/video') {
+    const durationSeconds = normalizeDurationSeconds(parameters.duration);
+    return finalizeCredits(durationSeconds * KLING_TURBO_COST_PER_SECOND);
+  }
+
+  return finalizeCredits(1);
 }
