@@ -8,6 +8,8 @@ describe('calculateWorkflowCreditCost', () => {
     expect(calculateWorkflowCreditCost('nano-banana-pro', { resolution: '1K', amount: 2 })).toBe(36); // 18 * 2
     expect(calculateWorkflowCreditCost('nano-banana-pro', { resolution: '2K', amount: 2 })).toBe(36); // 18 * 2
     expect(calculateWorkflowCreditCost('nano-banana-pro', { resolution: '4K', amount: 2 })).toBe(48); // 24 * 2
+    expect(calculateWorkflowCreditCost('seedream-5.0-lite', { amount: 1 })).toBe(6); // 5.5 -> 6
+    expect(calculateWorkflowCreditCost('seedream-5.0-lite', { amount: 3 })).toBe(17); // 16.5 -> 17
   });
 
   it('uses video pricing from spreadsheet rows', () => {

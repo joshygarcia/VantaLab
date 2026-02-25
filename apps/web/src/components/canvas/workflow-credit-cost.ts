@@ -11,10 +11,13 @@ type WorkflowParameters = {
 // - Google nano banana pro, 1/2K: 18.0 per image
 // - Google nano banana pro, 4K: 24.0 per image
 // - Google nano banana, text-to-image: 4.0 per image
-const IMAGE_COST_PER_IMAGE: Record<'z-image' | 'nano-banana' | 'nano-banana-pro', (resolution?: string) => number> = {
+// - seedream 5.0 Lite, image-to-image: 5.5 per image
+// - seedream 5.0 Lite, text-to-image: 5.5 per image
+const IMAGE_COST_PER_IMAGE: Record<'z-image' | 'nano-banana' | 'nano-banana-pro' | 'seedream-5.0-lite', (resolution?: string) => number> = {
   'z-image': () => 0.8,
   'nano-banana': () => 4,
-  'nano-banana-pro': (resolution) => (resolution === '4K' ? 24 : 18)
+  'nano-banana-pro': (resolution) => (resolution === '4K' ? 24 : 18),
+  'seedream-5.0-lite': () => 5.5
 };
 
 // Based on "Video Generation Model Pricing Spreadsheet.csv":
@@ -50,7 +53,7 @@ const normalizeDurationSeconds = (duration?: string): number => {
 const finalizeCredits = (value: number): number => Math.max(1, Math.ceil(value));
 
 export function calculateWorkflowCreditCost(model: string, parameters: WorkflowParameters): number {
-  if (model === 'z-image' || model === 'nano-banana' || model === 'nano-banana-pro') {
+  if (model === 'z-image' || model === 'nano-banana' || model === 'nano-banana-pro' || model === 'seedream-5.0-lite') {
     const amount = normalizeAmount(parameters.amount);
     const perImageCost = IMAGE_COST_PER_IMAGE[model](parameters.resolution);
     return finalizeCredits(perImageCost * amount);

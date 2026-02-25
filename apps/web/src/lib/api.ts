@@ -74,6 +74,7 @@ type JobResponse = {
   id: string;
   status: 'queued' | 'processing' | 'succeeded' | 'failed';
   mediaUrl?: string;
+  error?: string;
 };
 
 type JobStreamHandlers = {

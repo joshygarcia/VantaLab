@@ -21,6 +21,7 @@ import { NodeContextMenu } from './NodeContextMenu';
 import { PaneContextMenu } from './PaneContextMenu';
 import { WorkspaceSettingsModal } from './WorkspaceSettingsModal';
 import {
+  AlertTriangle,
   ChevronDown,
   CreditCard,
   FolderOpen,
@@ -31,7 +32,8 @@ import {
   Moon,
   Settings,
   Sparkles,
-  UserRound
+  UserRound,
+  X
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -57,6 +59,12 @@ const RUN_NODE_EVENT = 'persona:run-node';
 
 type RunNodeEventDetail = {
   nodeId?: string;
+};
+
+type ErrorToast = {
+  id: number;
+  title: string;
+  message: string;
 };
 
 const getFirstTextareaValue = (node: Node<NodeData>) => {
@@ -796,6 +804,8 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const [viewportVersion, setViewportVersion] = useState(0);
   const [canvasReady, setCanvasReady] = useState(false);
   const [canvasError, setCanvasError] = useState('');
+  const [errorToasts, setErrorToasts] = useState<ErrorToast[]>([]);
+  const toastTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
@@ -809,6 +819,55 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const appendNodeResultMedia = useCanvasStore((state) => state.appendNodeResultMedia);
   const duplicateNode = useCanvasStore((state) => state.duplicateNode);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
+
+  const removeErrorToast = useCallback((toastId: number) => {
+    setErrorToasts((current) => current.filter((toast) => toast.id !== toastId));
+  }, []);
+
+  const pushErrorToast = useCallback((title: string, message: string) => {
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      return;
+    }
+
+    setErrorToasts((current) => {
+      const toast: ErrorToast = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        title,
+        message: trimmedMessage
+      };
+      return [toast, ...current].slice(0, 4);
+    });
+  }, []);
+
+  useEffect(() => {
+    const activeIds = new Set(errorToasts.map((toast) => toast.id));
+
+    for (const toast of errorToasts) {
+      if (toastTimersRef.current.has(toast.id)) {
+        continue;
+      }
+
+      const timer = setTimeout(() => {
+        removeErrorToast(toast.id);
+      }, 6000);
+      toastTimersRef.current.set(toast.id, timer);
+    }
+
+    for (const [toastId, timer] of toastTimersRef.current.entries()) {
+      if (!activeIds.has(toastId)) {
+        clearTimeout(timer);
+        toastTimersRef.current.delete(toastId);
+      }
+    }
+
+    return () => {
+      for (const timer of toastTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      toastTimersRef.current.clear();
+    };
+  }, [errorToasts, removeErrorToast]);
 
   // ── Supabase Realtime Sync ──────────────────────────────────────
   const { broadcastNodePositions, broadcastEdges } = useRealtimeSync(workspaceId);
@@ -1976,7 +2035,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     return nodes.find((node) => isRunnableMediaNode(node)) ?? null;
   };
 
-  const onRun = async (requestedNodeId?: string) => {
+  const onRun = useCallback(async (requestedNodeId?: string) => {
     if (running) {
       return;
     }
@@ -2207,14 +2266,14 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           resolve(mediaUrl);
         };
 
-        const settleFailure = () => {
+        const settleFailure = (message?: string) => {
           if (settled) {
             return;
           }
 
           settled = true;
           unsubscribe();
-          reject(new Error('Workflow execution failed'));
+          reject(new Error(message?.trim() || 'Generation failed.'));
         };
 
         const runRestFallback = async () => {
@@ -2232,7 +2291,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
             }
 
             if (latest.status === 'failed') {
-              settleFailure();
+              settleFailure(latest.error);
               return;
             }
           } catch {
@@ -2250,7 +2309,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
             }
 
             if (job.status === 'failed') {
-              settleFailure();
+              settleFailure(job.error);
             }
           },
           onError: () => {
@@ -2291,12 +2350,16 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       }
 
       markNode(runnableNode.id, 'succeeded', lastMediaUrl);
-    } catch {
+    } catch (error) {
       markNode(runnableNode.id, 'failed');
+      const message = error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : 'Generation failed.';
+      pushErrorToast('Run failed', message);
     } finally {
       setRunning(false);
     }
-  };
+  }, [appendNodeResultMedia, clearNodeResultMedia, edges, markNode, nodes, pushErrorToast, running, workspaceId]);
 
   useEffect(() => {
     const onRunNode = (event: Event) => {
@@ -2591,6 +2654,37 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           <Background gap={focusMode ? 48 : 24} size={1.5} color="rgba(255,255,255,0.1)" />
         </ReactFlow>
       </section>
+
+      {errorToasts.length > 0 ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[120] flex justify-center px-3">
+          <div className="flex w-full max-w-[560px] flex-col gap-2">
+            {errorToasts.map((toast) => (
+              <div
+                key={toast.id}
+                className="pointer-events-auto inline-flex items-start gap-3 rounded-full border border-rose-400/35 bg-[#1a1216]/95 px-4 py-2.5 text-rose-100 shadow-[0_8px_24px_rgba(0,0,0,0.45)] backdrop-blur"
+              >
+                <span className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-rose-500/20 text-rose-300">
+                  <AlertTriangle size={13} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-xs font-semibold uppercase tracking-[0.08em] text-rose-200/90">{toast.title}</strong>
+                  <span className="block truncate text-sm text-rose-100/95" title={toast.message}>
+                    {toast.message}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-rose-200/75 transition hover:bg-white/10 hover:text-rose-100"
+                  aria-label="Dismiss error"
+                  onClick={() => removeErrorToast(toast.id)}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
