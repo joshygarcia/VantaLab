@@ -8,12 +8,26 @@ const DEV_FALLBACK_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? 'dev-user';
 const workspaceTokens = new Map<string, string>();
 const tokenWorkspaceAccess = new Map<string, boolean>();
 
-export type KlingElementLibraryItem = {
+const ELEMENT_NAME_MAX_LENGTH = 80;
+const ELEMENT_DESCRIPTION_MAX_LENGTH = 500;
+const ELEMENT_TAG_MAX_LENGTH = 24;
+const ELEMENT_TAG_MAX_COUNT = 8;
+const ELEMENT_IMAGE_MAX_COUNT = 4;
+
+export type ElementLibraryItem = {
+  id: string;
+  name: string;
+  description: string;
+  imageUrls: string[];
+  tags?: string[];
+};
+
+export type LegacyElementLibraryItem = {
   id: string;
   name: string;
   description?: string;
-  category: 'object' | 'character' | 'animal' | 'influencer' | 'custom';
-  mode: 'images' | 'video';
+  category?: string;
+  mode?: string;
   imageUrls?: string[];
   videoUrls?: string[];
 };
@@ -38,6 +52,28 @@ export type BillingTransaction = {
   stripePaymentIntentId: string;
   metadata: string | null;
   processedAt: string;
+};
+
+export type GenerationHistoryItem = {
+  id: string;
+  workspaceId: string;
+  model: string;
+  prompt: string;
+  mediaUrl: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
+type GenerationHistoryResponse = {
+  retentionDays: number;
+  items: GenerationHistoryItem[];
+};
+
+type GenerationHistoryFilters = {
+  workspaceId?: string;
+  model?: string;
+  startDate?: string;
+  endDate?: string;
 };
 
 type ExecuteRequest = {
@@ -84,7 +120,8 @@ type JobStreamHandlers = {
 };
 
 type KlingElementsLibraryResponse = {
-  items: KlingElementLibraryItem[];
+  items: ElementLibraryItem[];
+  legacyItems: LegacyElementLibraryItem[];
 };
 
 type CustomSpacesResponse = {
@@ -124,9 +161,125 @@ const readFileAsDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const sanitizeTags = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+
+    const tag = entry.trim().toLowerCase();
+    if (!tag || tag.length > ELEMENT_TAG_MAX_LENGTH || seen.has(tag)) {
+      continue;
+    }
+
+    seen.add(tag);
+    normalized.push(tag);
+    if (normalized.length >= ELEMENT_TAG_MAX_COUNT) {
+      break;
+    }
+  }
+
+  return normalized;
+};
+
+const sanitizeImageUrls = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0)
+    .slice(0, ELEMENT_IMAGE_MAX_COUNT);
+};
+
+const parseElementLibraryItem = (value: unknown): ElementLibraryItem | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const name = typeof value.name === 'string' ? value.name.trim() : '';
+  const description = typeof value.description === 'string' ? value.description.trim() : '';
+  const imageUrls = sanitizeImageUrls(value.imageUrls);
+  const tags = sanitizeTags(value.tags);
+
+  if (!id || !name || !description) {
+    return null;
+  }
+
+  if (name.length > ELEMENT_NAME_MAX_LENGTH || description.length > ELEMENT_DESCRIPTION_MAX_LENGTH) {
+    return null;
+  }
+
+  if (imageUrls.length < 2 || imageUrls.length > 4) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    description,
+    imageUrls,
+    tags: tags.length > 0 ? tags : undefined
+  };
+};
+
+const parseLegacyElementLibraryItem = (value: unknown): LegacyElementLibraryItem | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const name = typeof value.name === 'string' ? value.name.trim() : '';
+
+  if (!id || !name) {
+    return null;
+  }
+
+  const description = typeof value.description === 'string' ? value.description.trim() : undefined;
+  const category = typeof value.category === 'string' ? value.category : undefined;
+  const mode = typeof value.mode === 'string' ? value.mode : undefined;
+  const imageUrls = sanitizeImageUrls(value.imageUrls);
+  const videoUrls = Array.isArray(value.videoUrls)
+    ? value.videoUrls.filter((entry): entry is string => typeof entry === 'string').map((url) => url.trim()).filter((url) => url.length > 0)
+    : undefined;
+
+  const hasLegacySignal =
+    typeof category === 'string' ||
+    typeof mode === 'string' ||
+    (Array.isArray(videoUrls) && videoUrls.length > 0) ||
+    !Array.isArray(value.tags);
+
+  if (!hasLegacySignal) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    description,
+    category,
+    mode,
+    imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+    videoUrls: videoUrls && videoUrls.length > 0 ? videoUrls : undefined
+  };
+};
+
 async function getAccessToken(workspaceId: string): Promise<string> {
   const supabase = createClient();
   const { data } = await supabase.auth.getSession();
+  const sessionUserId = data.session?.user?.id?.trim();
 
   const existing = workspaceTokens.get(workspaceId);
   if (existing) {
@@ -157,7 +310,7 @@ async function getAccessToken(workspaceId: string): Promise<string> {
       'content-type': 'application/json'
     },
     body: JSON.stringify({
-      userId: DEV_FALLBACK_USER_ID,
+      userId: sessionUserId || DEV_FALLBACK_USER_ID,
       workspaceIds: [workspaceId]
     })
   });
@@ -207,6 +360,25 @@ async function tokenCanAccessWorkspace(token: string, workspaceId: string): Prom
     tokenWorkspaceAccess.set(cacheKey, false);
     return false;
   }
+}
+
+async function getUserAccessToken(): Promise<string> {
+  const supabase = createClient();
+  const { data } = await supabase.auth.getSession();
+
+  if (data.session?.access_token) {
+    return data.session.access_token;
+  }
+
+  if (DEV_JWT) {
+    return DEV_JWT;
+  }
+
+  if (!IS_DEV_ENV) {
+    throw new Error('Failed to acquire auth token');
+  }
+
+  return getAccessToken('local');
 }
 
 export async function executeWorkflow(payload: ExecuteRequest): Promise<ExecuteResponse> {
@@ -316,13 +488,41 @@ export async function getKlingElementsLibrary(workspaceId: string): Promise<Klin
     throw new Error('Failed to fetch Kling elements library');
   }
 
-  return response.json();
+  const payload = (await response.json()) as { items?: unknown };
+  const rawItems = Array.isArray(payload.items) ? payload.items : [];
+
+  const items: ElementLibraryItem[] = [];
+  const legacyItems: LegacyElementLibraryItem[] = [];
+
+  for (const rawItem of rawItems) {
+    const parsedItem = parseElementLibraryItem(rawItem);
+    if (parsedItem) {
+      items.push(parsedItem);
+      continue;
+    }
+
+    const legacyItem = parseLegacyElementLibraryItem(rawItem);
+    if (legacyItem) {
+      legacyItems.push(legacyItem);
+    }
+  }
+
+  return { items, legacyItems };
 }
 
 export async function updateKlingElementsLibrary(
   workspaceId: string,
-  items: KlingElementLibraryItem[]
-): Promise<{ success: boolean; count: number }> {
+  items: ElementLibraryItem[]
+): Promise<{ success: boolean; count: number; deletedStorageObjects?: number }> {
+  const normalizedItems = items.map((item) => {
+    const normalized = parseElementLibraryItem(item);
+    if (!normalized) {
+      throw new Error(`Invalid element library item: ${item.id}`);
+    }
+
+    return normalized;
+  });
+
   const accessToken = await getAccessToken(workspaceId);
   const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/kling-elements-library`, {
     method: 'PUT',
@@ -330,7 +530,7 @@ export async function updateKlingElementsLibrary(
       'content-type': 'application/json',
       authorization: `Bearer ${accessToken}`
     },
-    body: JSON.stringify({ items })
+    body: JSON.stringify({ items: normalizedItems })
   });
 
   if (!response.ok) {
@@ -507,8 +707,52 @@ export async function uploadWorkspaceImage(workspaceId: string, file: File): Pro
   return payload.fileUrl;
 }
 
+export async function uploadElementLibraryImage(workspaceId: string, file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Only image files are allowed');
+  }
+
+  const accessToken = await getAccessToken(workspaceId);
+  const base64Data = await readFileAsDataUrl(file);
+
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/element-library/upload`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify({
+      base64Data,
+      fileName: file.name
+    })
+  });
+
+  if (!response.ok) {
+    let message = 'Failed to upload image to Supabase Storage';
+    try {
+      const errorPayload = (await response.json()) as { message?: string | string[] };
+      if (Array.isArray(errorPayload.message) && errorPayload.message.length > 0) {
+        message = errorPayload.message[0];
+      } else if (typeof errorPayload.message === 'string' && errorPayload.message.trim().length > 0) {
+        message = errorPayload.message;
+      }
+    } catch {
+      // Preserve fallback.
+    }
+
+    throw new Error(message);
+  }
+
+  const payload = (await response.json()) as { fileUrl?: string };
+  if (!payload.fileUrl) {
+    throw new Error('Supabase upload response was missing fileUrl');
+  }
+
+  return payload.fileUrl;
+}
+
 export async function getBillingBalance(): Promise<BillingBalanceResponse> {
-  const accessToken = await getAccessToken('local');
+  const accessToken = await getUserAccessToken();
   const response = await fetch(`${API_BASE}/billing/balance`, {
     method: 'GET',
     cache: 'no-store',
@@ -524,8 +768,48 @@ export async function getBillingBalance(): Promise<BillingBalanceResponse> {
   return response.json();
 }
 
+export async function listGenerationHistory(
+  limit = 100,
+  filters: GenerationHistoryFilters = {}
+): Promise<GenerationHistoryResponse> {
+  const accessToken = await getUserAccessToken();
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+
+  if (filters.workspaceId?.trim()) {
+    params.set('workspaceId', filters.workspaceId.trim());
+  }
+
+  if (filters.model?.trim()) {
+    params.set('model', filters.model.trim());
+  }
+
+  if (filters.startDate?.trim()) {
+    params.set('startDate', filters.startDate.trim());
+  }
+
+  if (filters.endDate?.trim()) {
+    params.set('endDate', filters.endDate.trim());
+  }
+
+  const query = `?${params.toString()}`;
+  const response = await fetch(`${API_BASE}/workflows/history${query}`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch generation history');
+  }
+
+  return response.json();
+}
+
 export async function listBillingTransactions(limit = 50): Promise<BillingTransactionsResponse> {
-  const accessToken = await getAccessToken('local');
+  const accessToken = await getUserAccessToken();
   const query = `?limit=${encodeURIComponent(String(limit))}`;
   const response = await fetch(`${API_BASE}/billing/transactions${query}`, {
     method: 'GET',

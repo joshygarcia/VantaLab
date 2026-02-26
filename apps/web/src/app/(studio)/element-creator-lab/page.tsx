@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import {
+  ElementLibraryItem,
   executeWorkflow,
   getJobStatus,
   getKlingElementsLibrary,
-  updateKlingElementsLibrary,
-  KlingElementLibraryItem
+  updateKlingElementsLibrary
 } from '@/lib/api';
-import { Sparkles, Save, RotateCcw, Copy, Settings2, Plus, MonitorPlay, Image as ImageIcon, Video, Box, PenTool, LayoutGrid, ChevronDown, ChevronUp, CheckCircle2, User, Users } from 'lucide-react';
+import { Sparkles, RotateCcw, Copy, Settings2, Plus, Image as ImageIcon, Box, PenTool, LayoutGrid, ChevronDown, ChevronUp, CheckCircle2, User, Users } from 'lucide-react';
 
 type LabMode = 'builder' | 'prompt';
 type AdvancedTab = 'face' | 'body' | 'style';
@@ -32,28 +32,17 @@ type PromptDraft = {
   id: string;
   name: string;
   mode: LabMode;
-  outputMode: OutputMode;
   type: ElementType;
   prompt: string;
   createdAt: string;
 };
 
-type OutputMode = 'images' | 'video';
-
 type GeneratedMedia = {
-  type: 'image' | 'video';
+  type: 'image';
   url: string;
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const elementTypeToCategory: Record<ElementType, KlingElementLibraryItem['category']> = {
-  influencer: 'influencer',
-  character: 'character',
-  animal: 'animal',
-  object: 'object',
-  custom: 'custom'
-};
 
 const makeLibraryItemId = (name: string) => {
   const normalized = name
@@ -62,6 +51,19 @@ const makeLibraryItemId = (name: string) => {
     .replace(/^_+|_+$/g, '');
 
   return `${normalized || 'element'}_${Date.now()}`;
+};
+
+const normalizeTag = (rawTag: string) => rawTag.trim().toLowerCase().replace(/\s+/g, '-').slice(0, 24);
+
+const buildElementTags = (elementType: ElementType, builderState: BuilderState): string[] => {
+  const next = new Set<string>();
+  next.add(normalizeTag(elementType));
+
+  if (builderState.renderStyle) {
+    next.add(normalizeTag(builderState.renderStyle));
+  }
+
+  return Array.from(next).filter((tag) => tag.length > 0).slice(0, 8);
 };
 
 const DEFAULT_BUILDER_STATE: BuilderState = {
@@ -246,7 +248,6 @@ export default function ElementCreatorLabPage() {
   const [workspaceId, setWorkspaceId] = useState('local');
   const [elementName, setElementName] = useState('');
   const [elementType, setElementType] = useState<ElementType>('influencer');
-  const [outputMode, setOutputMode] = useState<OutputMode>('images');
   const [builder, setBuilder] = useState<BuilderState>(DEFAULT_BUILDER_STATE);
   const [manualPrompt, setManualPrompt] = useState('');
   const [generatedPrompt, setGeneratedPrompt] = useState('');
@@ -277,7 +278,6 @@ export default function ElementCreatorLabPage() {
     setLibraryItemId(null);
     setElementName('');
     setElementType('influencer');
-    setOutputMode('images');
     setBuilder(DEFAULT_BUILDER_STATE);
     setManualPrompt('');
     setGeneratedPrompt('');
@@ -301,7 +301,6 @@ export default function ElementCreatorLabPage() {
       id: draftId,
       name: draftName,
       mode,
-      outputMode,
       type: elementType,
       prompt,
       createdAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -328,36 +327,33 @@ export default function ElementCreatorLabPage() {
     throw new Error('Generation timed out');
   };
 
-  const persistGeneratedMediaToLibrary = async (
-    prompt: string,
-    mediaUrl: string,
-    mediaType: 'image' | 'video'
-  ) => {
+  const persistGeneratedMediaToLibrary = async (prompt: string, mediaUrl: string) => {
     const existingLibrary = await getKlingElementsLibrary(workspaceId);
     const libraryItems = Array.isArray(existingLibrary.items) ? existingLibrary.items : [];
 
-    const category = elementTypeToCategory[elementType];
     const normalizedName = elementName.trim() || 'Untitled Element';
     const matchedByName = libraryItems.find(
-      (item) => item.name.toLowerCase() === normalizedName.toLowerCase() && item.category === category
+      (item) => item.name.toLowerCase() === normalizedName.toLowerCase()
     );
 
     const itemId = libraryItemId || matchedByName?.id || makeLibraryItemId(normalizedName);
     const existing = libraryItems.find((item) => item.id === itemId);
 
     const existingImages = (existing?.imageUrls ?? []).map((url) => url.trim()).filter((url) => url.length > 0);
-    const nextImageUrls = mediaType === 'image'
-      ? Array.from(new Set([...existingImages, mediaUrl])).slice(0, 4)
-      : undefined;
+    const uniqueImages = Array.from(new Set([...existingImages, mediaUrl])).slice(0, 4);
+    const imageUrls = uniqueImages.length >= 2
+      ? uniqueImages
+      : uniqueImages.length === 1
+        ? [uniqueImages[0], uniqueImages[0]]
+        : [];
 
-    const nextItem: KlingElementLibraryItem = {
+    const tags = buildElementTags(elementType, builder);
+    const nextItem: ElementLibraryItem = {
       id: itemId,
       name: normalizedName,
-      description: prompt.slice(0, 240),
-      category,
-      mode: mediaType === 'video' ? 'video' : 'images',
-      imageUrls: mediaType === 'image' ? nextImageUrls : undefined,
-      videoUrls: mediaType === 'video' ? [mediaUrl] : undefined
+      description: prompt.slice(0, 500),
+      imageUrls,
+      tags: tags.length > 0 ? tags : undefined
     };
 
     const nextItems = [
@@ -379,7 +375,7 @@ export default function ElementCreatorLabPage() {
 
     setGeneratedPrompt(nextPrompt);
     registerDraft(nextPrompt);
-    setStatus('Prompt generated. Use Generate + Save to run and store it in the Kling library.');
+    setStatus('Prompt generated. Use Generate + Save to run and store it in the Element Library.');
   };
 
   const onGenerateAndSave = async () => {
@@ -399,41 +395,30 @@ export default function ElementCreatorLabPage() {
 
     try {
       setStatus('Queueing generation job...');
-      const model = outputMode === 'video' ? 'kling-3.0/video' : 'nano-banana-pro';
       const nodeId = `creator_lab_${Date.now()}`;
 
       const executeResult = await executeWorkflow({
         workspaceId,
         nodeId,
-        model,
-        parameters: outputMode === 'video'
-          ? {
-            prompt: nextPrompt,
-            aspectRatio: '9:16',
-            duration: '5',
-            mode: 'pro',
-            sound: false,
-            multiShots: false
-          }
-          : {
-            prompt: nextPrompt,
-            aspectRatio: '9:16',
-            resolution: '2K',
-            amount: 1
-          }
+        model: 'nano-banana-pro',
+        parameters: {
+          prompt: nextPrompt,
+          aspectRatio: '9:16',
+          resolution: '2K',
+          amount: 1
+        }
       });
 
       setStatus('Generating media...');
       const mediaUrl = await waitForJobMedia(executeResult.jobId, workspaceId);
-      const mediaType: 'image' | 'video' = outputMode === 'video' ? 'video' : 'image';
 
       setLatestMedia({
-        type: mediaType,
+        type: 'image',
         url: mediaUrl
       });
 
-      await persistGeneratedMediaToLibrary(nextPrompt, mediaUrl, mediaType);
-      setStatus('Generated and saved to Kling library');
+      await persistGeneratedMediaToLibrary(nextPrompt, mediaUrl);
+      setStatus('Generated and saved to Element Library');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Generation failed');
     } finally {
@@ -461,7 +446,6 @@ export default function ElementCreatorLabPage() {
     setElementName(draft.name);
     setElementType(draft.type);
     setMode(draft.mode);
-    setOutputMode(draft.outputMode);
     setGeneratedPrompt(draft.prompt);
     if (draft.mode === 'prompt') {
       setManualPrompt(draft.prompt);
@@ -513,8 +497,6 @@ export default function ElementCreatorLabPage() {
                     <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
                       <span>{draft.mode}</span>
                       <span className="w-1 h-1 rounded-full bg-zinc-700" />
-                      <span>{draft.outputMode}</span>
-                      <span className="w-1 h-1 rounded-full bg-zinc-700" />
                       <span>{draft.createdAt}</span>
                     </div>
                   </button>
@@ -557,23 +539,6 @@ export default function ElementCreatorLabPage() {
                     <option value="animal">Animal</option>
                     <option value="object">Object</option>
                     <option value="custom">Custom</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="h-6 w-px bg-white/10" />
-
-              <div className="flex items-center gap-2">
-                <MonitorPlay className="w-4 h-4 text-zinc-400" />
-                <div className="flex flex-col">
-                  <label className="text-[9px] uppercase font-semibold text-zinc-500 tracking-wider">Output</label>
-                  <select
-                    className="bg-transparent text-sm font-semibold text-zinc-300 outline-none focus:text-white appearance-none cursor-pointer"
-                    value={outputMode}
-                    onChange={(event) => setOutputMode(event.target.value as OutputMode)}
-                  >
-                    <option value="images">Images Sequence</option>
-                    <option value="video">Single Video</option>
                   </select>
                 </div>
               </div>
@@ -629,15 +594,11 @@ export default function ElementCreatorLabPage() {
                 </div>
                 <div className="flex-1 rounded-xl border border-white/5 bg-[radial-gradient(circle_at_50%_15%,rgba(255,255,255,0.03),transparent_55%)] bg-ink-950/50 flex flex-col items-center justify-center overflow-hidden relative shadow-inner">
                   {latestMedia ? (
-                    latestMedia.type === 'video' ? (
-                      <video src={latestMedia.url} controls className="h-full w-full object-contain" />
-                    ) : (
-                      <img src={latestMedia.url} alt="Generated element" className="h-full w-full object-contain" />
-                    )
+                    <img src={latestMedia.url} alt="Generated element" className="h-full w-full object-contain" />
                   ) : (
                     <div className="flex flex-col items-center gap-4 text-zinc-500">
                       <div className="h-16 w-16 rounded-2xl border border-white/5 bg-white/5 flex items-center justify-center shadow-sm">
-                        {outputMode === 'video' ? <Video className="w-6 h-6 text-zinc-400" /> : <ImageIcon className="w-6 h-6 text-zinc-400" />}
+                        <ImageIcon className="w-6 h-6 text-zinc-400" />
                       </div>
                       <div className="text-center">
                         <p className="text-sm font-semibold text-zinc-300">{elementName.trim() || 'Untitled Element'}</p>

@@ -8,8 +8,10 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   Sse,
+  UnauthorizedException,
   UseGuards
 } from '@nestjs/common';
 import { concat, map, Observable, of, takeWhile } from 'rxjs';
@@ -44,6 +46,32 @@ export class WorkflowsController {
       throw new NotFoundException('Job not found');
     }
     return job;
+  }
+
+  @Get('history')
+  async getHistory(
+    @Req() request: AuthenticatedRequest,
+    @Query('limit') limitRaw?: string,
+    @Query('workspaceId') workspaceId?: string,
+    @Query('model') model?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string
+  ) {
+    const userId = request.user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('Missing authenticated user');
+    }
+
+    const parsedLimit = typeof limitRaw === 'string' ? Number(limitRaw) : NaN;
+    const limit = Number.isFinite(parsedLimit) ? parsedLimit : 100;
+
+    return this.workflowsService.getUserGenerationHistory(userId, {
+      limit,
+      workspaceId: typeof workspaceId === 'string' && workspaceId.trim().length > 0 ? workspaceId.trim() : undefined,
+      model: typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined,
+      startDate: typeof startDate === 'string' ? startDate : undefined,
+      endDate: typeof endDate === 'string' ? endDate : undefined
+    });
   }
 
   @Sse('jobs/:jobId/events')

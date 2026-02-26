@@ -62,8 +62,8 @@ export default function HomePage() {
               <Library className="h-5 w-5" />
             </div>
             <div className="mt-8">
-              <strong className="block text-sm font-semibold text-zinc-50">Library</strong>
-              <p className="mt-1 text-xs text-zinc-400">Curate influencer packs</p>
+              <strong className="block text-sm font-semibold text-zinc-50">Element Library</strong>
+              <p className="mt-1 text-xs text-zinc-400">Curate reusable element packs</p>
             </div>
             <div className="absolute inset-0 bg-gradient-to-t from-zinc-100/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
           </Link>
@@ -95,8 +95,8 @@ export default function HomePage() {
               body: 'Draft, iterate, and save production-grade prompts.'
             },
             {
-              title: 'Library + Lab Loop',
-              body: 'Persist assets straight into the library from the Lab.'
+              title: 'Element Library + Lab',
+              body: 'Persist assets straight into the Element Library from the Lab.'
             },
             {
               title: 'Launch-Ready Spaces',
@@ -124,7 +124,7 @@ export default function HomePage() {
           <div className="h-4 w-[1px] bg-white/10" />
           <div className="flex items-center gap-3">
             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Asset Reuse</span>
-            <span className="text-sm font-medium text-zinc-300">Shared Library</span>
+            <span className="text-sm font-medium text-zinc-300">Shared Element Library</span>
           </div>
           <div className="h-4 w-[1px] bg-white/10" />
           <div className="flex items-center gap-3">

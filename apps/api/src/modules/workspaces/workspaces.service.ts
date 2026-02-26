@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException, UnauthorizedExcepti
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { PrismaService } from '../database/prisma.service';
 import { UpdateWorkspaceSettingsDto } from './dto/update-workspace.dto';
 import { UpdateKlingElementsLibraryDto } from './dto/update-kling-elements-library.dto';
@@ -43,6 +44,16 @@ type WorkspaceCanvasState = {
 @Injectable()
 export class WorkspacesService {
     constructor(private readonly prisma: PrismaService) { }
+    private supabaseStorageAdmin: SupabaseClient | null = null;
+    private readonly signedUrlTtlSeconds = 60 * 60 * 24;
+
+    private sanitizeStoragePathSegment(value: string) {
+        return value
+            .trim()
+            .replace(/[^a-zA-Z0-9_-]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '');
+    }
 
     private readonly klingElementsLibraryPath = path.resolve(
         __dirname,
@@ -53,6 +64,80 @@ export class WorkspacesService {
         __dirname,
         '../../../data/custom-spaces.json'
     );
+
+    private getSupabaseStorageAdmin(): SupabaseClient {
+        if (this.supabaseStorageAdmin) {
+            return this.supabaseStorageAdmin;
+        }
+
+        const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+        if (!supabaseUrl || !serviceRoleKey) {
+            throw new BadRequestException(
+                'Supabase Storage is not configured. Set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.'
+            );
+        }
+
+        this.supabaseStorageAdmin = createClient(supabaseUrl, serviceRoleKey, {
+            auth: { persistSession: false }
+        });
+
+        return this.supabaseStorageAdmin;
+    }
+
+    private getSupabaseStorageBucket() {
+        return process.env.SUPABASE_STORAGE_BUCKET
+            ?? process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET
+            ?? 'element-library';
+    }
+
+    private extractSupabaseObjectPath(fileUrl: string, bucket: string) {
+        const supabaseUrl = (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
+        if (!supabaseUrl) {
+            return null;
+        }
+
+        const prefix = `${supabaseUrl}/storage/v1/object/public/${bucket}/`;
+        if (!fileUrl.startsWith(prefix)) {
+            return null;
+        }
+
+        const objectPath = fileUrl.slice(prefix.length).trim();
+        if (!objectPath) {
+            return null;
+        }
+
+        return decodeURIComponent(objectPath);
+    }
+
+    private async toDisplayableStorageUrl(fileUrl: string, requesterUserId: string) {
+        const bucket = this.getSupabaseStorageBucket();
+        const objectPath = this.extractSupabaseObjectPath(fileUrl, bucket);
+
+        if (!objectPath) {
+            return fileUrl;
+        }
+
+        const pathSegments = objectPath.split('/').filter((segment) => segment.length > 0);
+        const ownerSegment = pathSegments.length >= 3 ? pathSegments[1] : null;
+        const normalizedRequesterId = this.sanitizeStoragePathSegment(requesterUserId);
+
+        if (!ownerSegment || !normalizedRequesterId || ownerSegment !== normalizedRequesterId) {
+            return fileUrl;
+        }
+
+        const { data, error } = await this.getSupabaseStorageAdmin()
+            .storage
+            .from(bucket)
+            .createSignedUrl(objectPath, this.signedUrlTtlSeconds);
+
+        if (error || !data?.signedUrl) {
+            return fileUrl;
+        }
+
+        return data.signedUrl;
+    }
 
     private assertWorkspaceAccess(id: string, userWorkspaceIds: string[]) {
         if (!userWorkspaceIds.includes(id)) {
@@ -122,6 +207,78 @@ export class WorkspacesService {
         return fileUrl;
     }
 
+    private async uploadImageToSupabaseStorage(
+        base64Data: string,
+        fileName: string | undefined,
+        workspaceId: string,
+        userId: string
+    ) {
+        if (!base64Data.startsWith('data:image/')) {
+            throw new BadRequestException('Only image uploads are supported');
+        }
+
+        const dataUrlMatch = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/i.exec(base64Data);
+        if (!dataUrlMatch) {
+            throw new BadRequestException('Invalid image data URL payload');
+        }
+
+        const mimeType = dataUrlMatch[1].toLowerCase();
+        const base64Payload = dataUrlMatch[2];
+
+        let binary: Buffer;
+        try {
+            binary = Buffer.from(base64Payload, 'base64');
+        } catch {
+            throw new BadRequestException('Invalid base64 image payload');
+        }
+
+        if (!binary.length) {
+            throw new BadRequestException('Image payload is empty');
+        }
+
+        const bucket = this.getSupabaseStorageBucket();
+
+        const extensionByMime: Record<string, string> = {
+            'image/png': 'png',
+            'image/jpeg': 'jpg',
+            'image/jpg': 'jpg',
+            'image/webp': 'webp',
+            'image/gif': 'gif'
+        };
+
+        const fallbackExt = extensionByMime[mimeType] ?? 'png';
+        const fileNameExt = typeof fileName === 'string' && fileName.includes('.')
+            ? fileName.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '')
+            : '';
+        const extension = fileNameExt && fileNameExt.length > 0 ? fileNameExt : fallbackExt;
+
+        const workspaceSegment = this.sanitizeStoragePathSegment(workspaceId) || 'workspace';
+        const userSegment = this.sanitizeStoragePathSegment(userId) || 'user';
+        const objectPath = `${workspaceSegment}/${userSegment}/${Date.now()}_${randomUUID().slice(0, 8)}.${extension}`;
+        const supabase = this.getSupabaseStorageAdmin();
+
+        const { error } = await supabase.storage
+            .from(bucket)
+            .upload(objectPath, binary, {
+                contentType: mimeType,
+                cacheControl: '3600',
+                upsert: false
+            });
+
+        if (error) {
+            throw new BadRequestException(`Failed to upload image to Supabase Storage: ${error.message}`);
+        }
+
+        const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(objectPath);
+        const fileUrl = publicUrlData?.publicUrl;
+
+        if (!fileUrl) {
+            throw new BadRequestException('Supabase upload completed without a public URL');
+        }
+
+        return fileUrl;
+    }
+
     private async readLibraryStore(): Promise<Record<string, unknown[]>> {
         try {
             const raw = await fs.readFile(this.klingElementsLibraryPath, 'utf-8');
@@ -139,6 +296,74 @@ export class WorkspacesService {
         const dir = path.dirname(this.klingElementsLibraryPath);
         await fs.mkdir(dir, { recursive: true });
         await fs.writeFile(this.klingElementsLibraryPath, JSON.stringify(store, null, 2), 'utf-8');
+    }
+
+    private collectLibraryImageUrls(items: unknown[]): string[] {
+        const urls: string[] = [];
+
+        for (const item of items) {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                continue;
+            }
+
+            const rawImageUrls = (item as { imageUrls?: unknown }).imageUrls;
+            if (!Array.isArray(rawImageUrls)) {
+                continue;
+            }
+
+            for (const rawUrl of rawImageUrls) {
+                if (typeof rawUrl !== 'string') {
+                    continue;
+                }
+
+                const normalized = rawUrl.trim();
+                if (normalized.length > 0) {
+                    urls.push(normalized);
+                }
+            }
+        }
+
+        return Array.from(new Set(urls));
+    }
+
+    private async deleteLibraryStorageFiles(workspaceId: string, fileUrls: string[]) {
+        if (fileUrls.length === 0) {
+            return;
+        }
+
+        const bucket = this.getSupabaseStorageBucket();
+        const workspaceSegment = this.sanitizeStoragePathSegment(workspaceId);
+        if (!workspaceSegment) {
+            return;
+        }
+
+        const objectPaths = Array.from(new Set(
+            fileUrls
+                .map((url) => this.extractSupabaseObjectPath(url, bucket))
+                .filter((objectPath): objectPath is string => {
+                    if (typeof objectPath !== 'string') {
+                        return false;
+                    }
+
+                    return objectPath.startsWith(`${workspaceSegment}/`);
+                })
+        ));
+
+        if (objectPaths.length === 0) {
+            return;
+        }
+
+        const supabase = this.getSupabaseStorageAdmin();
+        const batchSize = 100;
+
+        for (let index = 0; index < objectPaths.length; index += batchSize) {
+            const batch = objectPaths.slice(index, index + batchSize);
+            const { error } = await supabase.storage.from(bucket).remove(batch);
+
+            if (error) {
+                throw new Error(`Failed to remove Supabase Storage objects: ${error.message}`);
+            }
+        }
     }
 
     private async readCustomSpacesStore(): Promise<Record<string, CustomSpaceItem[]>> {
@@ -323,13 +548,41 @@ export class WorkspacesService {
         };
     }
 
-    async getKlingElementsLibrary(id: string, userWorkspaceIds: string[]) {
+    async getKlingElementsLibrary(id: string, userWorkspaceIds: string[], requesterUserId: string) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
         const store = await this.readLibraryStore();
-        const items = store[id];
+        const items = Array.isArray(store[id]) ? store[id] : [];
+        const normalizedItems = await Promise.all(
+            items.map(async (item) => {
+                if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                    return item;
+                }
+
+                const rawImageUrls = (item as { imageUrls?: unknown }).imageUrls;
+                if (!Array.isArray(rawImageUrls)) {
+                    return item;
+                }
+
+                const imageUrls = await Promise.all(
+                    rawImageUrls.map((value) => {
+                        if (typeof value !== 'string') {
+                            return Promise.resolve(value);
+                        }
+
+                        return this.toDisplayableStorageUrl(value, requesterUserId);
+                    })
+                );
+
+                return {
+                    ...item,
+                    imageUrls
+                };
+            })
+        );
+
         return {
-            items: Array.isArray(items) ? items : []
+            items: normalizedItems
         };
     }
 
@@ -341,12 +594,42 @@ export class WorkspacesService {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
         const store = await this.readLibraryStore();
+        const previousItems = Array.isArray(store[id]) ? store[id] : [];
+        const previousUrls = new Set(this.collectLibraryImageUrls(previousItems));
+
         store[id] = payload.items;
+
+        const nextUrlsInWorkspace = new Set(this.collectLibraryImageUrls(payload.items));
+        const remainingUrlsInAllWorkspaces = new Set(
+            Object.values(store).flatMap((items) => this.collectLibraryImageUrls(Array.isArray(items) ? items : []))
+        );
+
+        const urlsToDelete = Array.from(previousUrls).filter((url) => {
+            if (nextUrlsInWorkspace.has(url)) {
+                return false;
+            }
+
+            return !remainingUrlsInAllWorkspaces.has(url);
+        });
+
         await this.writeLibraryStore(store);
+
+        let deletedStorageObjects = 0;
+
+        if (urlsToDelete.length > 0) {
+            try {
+                await this.deleteLibraryStorageFiles(id, urlsToDelete);
+                deletedStorageObjects = urlsToDelete.length;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'unknown error';
+                console.warn(`[workspaces] failed to delete ${urlsToDelete.length} storage object(s): ${message}`);
+            }
+        }
 
         return {
             success: true,
-            count: payload.items.length
+            count: payload.items.length,
+            deletedStorageObjects
         };
     }
 
@@ -531,6 +814,20 @@ export class WorkspacesService {
         }
 
         const fileUrl = await this.uploadImageToKie(payload.base64Data, payload.fileName, workspace.kieApiKey);
+        return {
+            fileUrl
+        };
+    }
+
+    async uploadElementLibraryFile(
+        id: string,
+        payload: UploadWorkspaceFileDto,
+        userWorkspaceIds: string[],
+        userId: string
+    ) {
+        this.assertWorkspaceAccess(id, userWorkspaceIds);
+
+        const fileUrl = await this.uploadImageToSupabaseStorage(payload.base64Data, payload.fileName, id, userId);
         return {
             fileUrl
         };

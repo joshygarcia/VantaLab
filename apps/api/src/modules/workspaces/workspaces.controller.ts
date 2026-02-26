@@ -59,7 +59,7 @@ export class WorkspacesController {
         @Req() request: AuthenticatedRequest
     ) {
         const user = this.getAuthenticatedUser(request);
-        return this.workspacesService.getKlingElementsLibrary(id, user.workspaceIds);
+        return this.workspacesService.getKlingElementsLibrary(id, user.workspaceIds, user.id);
     }
 
     @Put(':id/kling-elements-library')
@@ -82,6 +82,17 @@ export class WorkspacesController {
     ) {
         const user = this.getAuthenticatedUser(request);
         return this.workspacesService.uploadWorkspaceFile(id, payload, user.workspaceIds);
+    }
+
+    @Post(':id/element-library/upload')
+    @UseGuards(JwtAuthGuard)
+    uploadElementLibraryFile(
+        @Param('id') id: string,
+        @Body() payload: UploadWorkspaceFileDto,
+        @Req() request: AuthenticatedRequest
+    ) {
+        const user = this.getAuthenticatedUser(request);
+        return this.workspacesService.uploadElementLibraryFile(id, payload, user.workspaceIds, user.id);
     }
 
     @Get(':id/spaces')

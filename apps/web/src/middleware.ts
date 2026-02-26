@@ -6,6 +6,7 @@ const PROTECTED_PREFIXES = [
     '/dashboard',
     '/spaces',
     '/library',
+    '/history',
     '/projects',
     '/element-creator-lab',
     '/billing',
