@@ -24,6 +24,7 @@ export function WorkspaceSettingsModal({ workspaceId, isOpen, onClose }: Workspa
 
     try {
       const devJwt = process.env.NEXT_PUBLIC_DEV_JWT;
+      const devFallbackUserId = process.env.NEXT_PUBLIC_DEV_USER_ID ?? 'dev-user';
       const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
       let token = devJwt;
@@ -31,7 +32,10 @@ export function WorkspaceSettingsModal({ workspaceId, isOpen, onClose }: Workspa
         const tokenResponse = await fetch(`${apiBase}/auth/dev-token`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ workspaceIds: [workspaceId] })
+          body: JSON.stringify({
+            userId: devFallbackUserId,
+            workspaceIds: [workspaceId]
+          })
         });
 
         if (tokenResponse.ok) {

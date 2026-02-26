@@ -1,8 +1,9 @@
-import { AlignLeft, Check, FileVideo, Image as ImageIcon, LoaderCircle, Settings, Type, X, Zap } from 'lucide-react';
+import { AlignLeft, Check, ChevronDown, FileVideo, Image as ImageIcon, Link2, LoaderCircle, Play, Settings, Trash2, Type, X, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Handle, NodeResizer, Position } from 'reactflow';
 
 import { useCanvasStore } from '@/store/canvas-store';
+import { AddNodeType } from '../add-node-menu';
 
 export type BaseNodeData = {
   title?: string;
@@ -34,6 +35,24 @@ type MainNodeProps = {
   isConnectable: boolean;
   selected?: boolean;
 };
+
+type RunNodeMode = 'node-only' | 'chain-all' | 'upstream-and-self' | 'self-and-downstream';
+
+const RUN_NODE_EVENT = 'persona:run-node';
+const QUICK_CONNECT_NODE_EVENT = 'persona:quick-connect-node';
+const DELETE_NODE_EVENT = 'persona:delete-node';
+
+const RUN_MODE_OPTIONS: Array<{ value: RunNodeMode; label: string }> = [
+  { value: 'node-only', label: 'Run this node' },
+  { value: 'chain-all', label: 'Run this full chain' },
+  { value: 'upstream-and-self', label: 'Run previous + this node' },
+  { value: 'self-and-downstream', label: 'Run this + following nodes' }
+];
+
+const QUICK_CONNECT_OPTIONS: Array<{ type: AddNodeType; label: string }> = [
+  { type: 'text-prompt', label: 'Text Prompt' },
+  { type: 'image-generator', label: 'Image Generator' }
+];
 
 const ICONS = {
   settings: Settings,
@@ -115,6 +134,8 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
   const ref = useRef<HTMLDivElement | null>(null);
   const [isCursorNear, setIsCursorNear] = useState(false);
   const [openSelectId, setOpenSelectId] = useState<string | null>(null);
+  const [runMenuOpen, setRunMenuOpen] = useState(false);
+  const [quickConnectMenuOpen, setQuickConnectMenuOpen] = useState(false);
   const edges = useCanvasStore((state) => state.edges);
   const updateNodeText = useCanvasStore((state) => state.updateNodeText);
   const updateNodeControl = useCanvasStore((state) => state.updateNodeControl);
@@ -149,22 +170,28 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
       return;
     }
     setOpenSelectId(null);
+    setRunMenuOpen(false);
+    setQuickConnectMenuOpen(false);
   }, [selected]);
 
   useEffect(() => {
-    if (!openSelectId) {
+    if (!openSelectId && !runMenuOpen && !quickConnectMenuOpen) {
       return;
     }
 
     const onPointerDown = (event: MouseEvent) => {
       if (!ref.current?.contains(event.target as Node)) {
         setOpenSelectId(null);
+        setRunMenuOpen(false);
+        setQuickConnectMenuOpen(false);
       }
     };
 
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setOpenSelectId(null);
+        setRunMenuOpen(false);
+        setQuickConnectMenuOpen(false);
       }
     };
 
@@ -175,7 +202,7 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
       window.removeEventListener('mousedown', onPointerDown);
       window.removeEventListener('keydown', onEscape);
     };
-  }, [openSelectId]);
+  }, [openSelectId, quickConnectMenuOpen, runMenuOpen]);
 
   const title = data.title || data.label || 'Node';
   const showConnectionIcons = selected || isCursorNear;
@@ -235,8 +262,125 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
     return edges.some((edge) => edge.source === id && matchesHandle(edge.sourceHandle, handleId));
   };
 
+  const dispatchRun = (mode: RunNodeMode) => {
+    window.dispatchEvent(
+      new CustomEvent(RUN_NODE_EVENT, {
+        detail: { nodeId: id, mode }
+      })
+    );
+  };
+
   return (
     <div ref={ref} className="relative h-full w-full pt-8">
+      {selected ? (
+        <div className="absolute left-1/2 top-0 z-50 -translate-x-1/2 -translate-y-full pb-2">
+          <div className="flex items-center gap-1 rounded-full border border-white/10 bg-[#141820]/92 p-1 shadow-[0_16px_30px_rgba(0,0,0,0.45)] backdrop-blur-md">
+            <div className="relative">
+              <div className="inline-flex items-center">
+                <button
+                  type="button"
+                  disabled={!canRunNode || isProcessing}
+                  className="nodrag inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-zinc-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45"
+                  onClick={() => dispatchRun('node-only')}
+                >
+                  <Play size={13} />
+                  <span>Run</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!canRunNode || isProcessing}
+                  className="nodrag inline-flex h-8 w-7 items-center justify-center rounded-full text-zinc-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45"
+                  onClick={() => {
+                    setRunMenuOpen((value) => !value);
+                    setQuickConnectMenuOpen(false);
+                  }}
+                  aria-expanded={runMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <ChevronDown size={14} className={runMenuOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                </button>
+              </div>
+
+              {runMenuOpen ? (
+                <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[250px] rounded-xl border border-white/10 bg-[#131922] p-1 shadow-[0_20px_32px_rgba(0,0,0,0.55)]">
+                  {RUN_MODE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className="nodrag flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
+                      onClick={() => {
+                        dispatchRun(option.value);
+                        setRunMenuOpen(false);
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="h-5 w-px bg-white/10" />
+
+            <div className="relative">
+              <button
+                type="button"
+                className="nodrag inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-zinc-100 transition hover:bg-white/10"
+                onClick={() => {
+                  setQuickConnectMenuOpen((value) => !value);
+                  setRunMenuOpen(false);
+                }}
+                aria-expanded={quickConnectMenuOpen}
+                aria-haspopup="menu"
+              >
+                <Link2 size={13} />
+                <span>Quick connect</span>
+                <ChevronDown size={14} className={quickConnectMenuOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
+              </button>
+
+              {quickConnectMenuOpen ? (
+                <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[200px] rounded-xl border border-white/10 bg-[#131922] p-1 shadow-[0_20px_32px_rgba(0,0,0,0.55)]">
+                  {QUICK_CONNECT_OPTIONS.map((option) => (
+                    <button
+                      key={option.type}
+                      type="button"
+                      className="nodrag flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium text-zinc-200 transition hover:bg-white/10 hover:text-white"
+                      onClick={() => {
+                        window.dispatchEvent(
+                          new CustomEvent(QUICK_CONNECT_NODE_EVENT, {
+                            detail: { nodeId: id, type: option.type }
+                          })
+                        );
+                        setQuickConnectMenuOpen(false);
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="h-5 w-px bg-white/10" />
+
+            <button
+              type="button"
+              className="nodrag inline-flex h-8 w-8 items-center justify-center rounded-full text-rose-300 transition hover:bg-rose-500/20 hover:text-rose-200"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent(DELETE_NODE_EVENT, {
+                    detail: { nodeId: id }
+                  })
+                )
+              }
+              aria-label="Delete node"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="pointer-events-none absolute left-5 top-0 flex items-center gap-2 text-sm font-semibold text-white">
         <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#2a2d33] text-zinc-200">
           {Icon ? <Icon size={12} /> : <Zap size={12} />}

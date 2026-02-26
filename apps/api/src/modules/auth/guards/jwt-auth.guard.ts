@@ -59,6 +59,16 @@ export class JwtAuthGuard implements CanActivate {
 
     const localClaims = await this.tryVerifyLocalJwt(token);
     if (localClaims) {
+      if (this.shouldBypassLocalDevPersistence(localClaims.sub)) {
+        request.user = {
+          id: localClaims.sub,
+          sub: localClaims.sub,
+          role: 'developer',
+          workspaceIds: this.normalizeWorkspaceIds(localClaims.workspaceIds)
+        };
+        return true;
+      }
+
       const role = await this.resolveUserRole(localClaims.sub);
       request.user = {
         id: localClaims.sub,
@@ -194,5 +204,14 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     return null;
+  }
+
+  private shouldBypassLocalDevPersistence(userId: string): boolean {
+    if (process.env.NODE_ENV === 'production') {
+      return false;
+    }
+
+    const configuredDevUserId = process.env.DEV_AUTH_USER_ID?.trim() || 'dev-user';
+    return userId === configuredDevUserId || userId.startsWith('dev-user-');
   }
 }

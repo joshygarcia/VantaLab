@@ -10,6 +10,8 @@ type ApiKeyItem = {
     isActive: boolean;
     usageCount: number;
     lastUsedAt: string | null;
+    remainingCredits: number | null;
+    remainingCreditsError?: string | null;
 };
 
 export function ApiKeyManager() {
@@ -127,6 +129,7 @@ export function ApiKeyManager() {
                             <th className="px-6 py-3">Status</th>
                             <th className="px-6 py-3">Usage Mux</th>
                             <th className="px-6 py-3">Last Used</th>
+                            <th className="px-6 py-3">Remaining Credits</th>
                             <th className="px-6 py-3 text-right">Actions</th>
                         </tr>
                     </thead>
@@ -160,6 +163,20 @@ export function ApiKeyManager() {
                                         {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : 'Never'}
                                     </div>
                                 </td>
+                                <td className="px-6 py-4">
+                                    {typeof k.remainingCredits === 'number' ? (
+                                        <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                                            {k.remainingCredits.toLocaleString()} cr
+                                        </span>
+                                    ) : (
+                                        <span
+                                            className="inline-flex items-center rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-300"
+                                            title={k.remainingCreditsError || 'Unable to fetch remaining credits'}
+                                        >
+                                            N/A
+                                        </span>
+                                    )}
+                                </td>
                                 <td className="px-6 py-4 text-right">
                                     <button
                                         onClick={() => deleteKey(k.id)}
@@ -172,7 +189,7 @@ export function ApiKeyManager() {
                         ))}
                         {keys.length === 0 && (
                             <tr>
-                                <td colSpan={5} className="px-6 py-8 text-center text-neutral-500">
+                                <td colSpan={6} className="px-6 py-8 text-center text-neutral-500">
                                     No API Keys added to the registry yet.
                                 </td>
                             </tr>

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/client';
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 const DEV_JWT = process.env.NEXT_PUBLIC_DEV_JWT;
 const IS_DEV_ENV = process.env.NODE_ENV !== 'production';
+const DEV_FALLBACK_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? 'dev-user';
 
 const workspaceTokens = new Map<string, string>();
 const tokenWorkspaceAccess = new Map<string, boolean>();
@@ -155,7 +156,10 @@ async function getAccessToken(workspaceId: string): Promise<string> {
     headers: {
       'content-type': 'application/json'
     },
-    body: JSON.stringify({ workspaceIds: [workspaceId] })
+    body: JSON.stringify({
+      userId: DEV_FALLBACK_USER_ID,
+      workspaceIds: [workspaceId]
+    })
   });
 
   if (!response.ok) {

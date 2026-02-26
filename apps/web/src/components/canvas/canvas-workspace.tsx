@@ -56,8 +56,22 @@ const DEFAULT_MAIN_NODE_SIZE = { width: 360, height: 320 } as const;
 const DEFAULT_TEXT_PROMPT_NODE_SIZE = { width: 360, height: 320 } as const;
 const DEFAULT_IMAGE_GENERATOR_NODE_SIZE = { width: 540, height: 560 } as const;
 const RUN_NODE_EVENT = 'persona:run-node';
+const QUICK_CONNECT_NODE_EVENT = 'persona:quick-connect-node';
+const DELETE_NODE_EVENT = 'persona:delete-node';
+
+type RunNodeMode = 'node-only' | 'chain-all' | 'upstream-and-self' | 'self-and-downstream';
 
 type RunNodeEventDetail = {
+  nodeId?: string;
+  mode?: RunNodeMode;
+};
+
+type QuickConnectNodeEventDetail = {
+  nodeId?: string;
+  type?: AddNodeType;
+};
+
+type DeleteNodeEventDetail = {
   nodeId?: string;
 };
 
@@ -777,6 +791,151 @@ const pickBatchedValue = (values: string[], index: number): string | undefined =
   return values[boundedIndex];
 };
 
+const collectConnectedChainIds = (startNodeId: string, graphEdges: Edge[]) => {
+  const adjacency = new Map<string, Set<string>>();
+  for (const edge of graphEdges) {
+    if (!adjacency.has(edge.source)) {
+      adjacency.set(edge.source, new Set());
+    }
+    if (!adjacency.has(edge.target)) {
+      adjacency.set(edge.target, new Set());
+    }
+    adjacency.get(edge.source)?.add(edge.target);
+    adjacency.get(edge.target)?.add(edge.source);
+  }
+
+  const visited = new Set<string>([startNodeId]);
+  const queue: string[] = [startNodeId];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    for (const neighbor of adjacency.get(current) ?? []) {
+      if (visited.has(neighbor)) {
+        continue;
+      }
+      visited.add(neighbor);
+      queue.push(neighbor);
+    }
+  }
+
+  return visited;
+};
+
+const collectUpstreamNodeIds = (startNodeId: string, graphEdges: Edge[]) => {
+  const incoming = new Map<string, Set<string>>();
+  for (const edge of graphEdges) {
+    if (!incoming.has(edge.target)) {
+      incoming.set(edge.target, new Set());
+    }
+    incoming.get(edge.target)?.add(edge.source);
+  }
+
+  const visited = new Set<string>([startNodeId]);
+  const queue: string[] = [startNodeId];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    for (const previous of incoming.get(current) ?? []) {
+      if (visited.has(previous)) {
+        continue;
+      }
+      visited.add(previous);
+      queue.push(previous);
+    }
+  }
+
+  return visited;
+};
+
+const collectDownstreamNodeIds = (startNodeId: string, graphEdges: Edge[]) => {
+  const outgoing = new Map<string, Set<string>>();
+  for (const edge of graphEdges) {
+    if (!outgoing.has(edge.source)) {
+      outgoing.set(edge.source, new Set());
+    }
+    outgoing.get(edge.source)?.add(edge.target);
+  }
+
+  const visited = new Set<string>([startNodeId]);
+  const queue: string[] = [startNodeId];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    for (const next of outgoing.get(current) ?? []) {
+      if (visited.has(next)) {
+        continue;
+      }
+      visited.add(next);
+      queue.push(next);
+    }
+  }
+
+  return visited;
+};
+
+const topologicallySortNodeIds = (
+  nodeIds: Set<string>,
+  graphEdges: Edge[],
+  fallbackNodeOrder: string[]
+) => {
+  const indegree = new Map<string, number>();
+  const adjacency = new Map<string, Set<string>>();
+
+  for (const nodeId of nodeIds) {
+    indegree.set(nodeId, 0);
+    adjacency.set(nodeId, new Set());
+  }
+
+  for (const edge of graphEdges) {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
+      continue;
+    }
+    if (adjacency.get(edge.source)?.has(edge.target)) {
+      continue;
+    }
+
+    adjacency.get(edge.source)?.add(edge.target);
+    indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
+  }
+
+  const queue = fallbackNodeOrder.filter((nodeId) => nodeIds.has(nodeId) && (indegree.get(nodeId) ?? 0) === 0);
+  const ordered: string[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    ordered.push(current);
+    for (const next of adjacency.get(current) ?? []) {
+      const nextInDegree = (indegree.get(next) ?? 0) - 1;
+      indegree.set(next, nextInDegree);
+      if (nextInDegree === 0) {
+        queue.push(next);
+      }
+    }
+  }
+
+  // In case of cycles, append remaining nodes deterministically.
+  for (const nodeId of fallbackNodeOrder) {
+    if (nodeIds.has(nodeId) && !ordered.includes(nodeId)) {
+      ordered.push(nodeId);
+    }
+  }
+
+  return ordered;
+};
+
 export function CanvasWorkspace({ workspaceId }: CanvasWorkspaceProps) {
   return (
     <ReactFlowProvider>
@@ -818,7 +977,6 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const clearNodeResultMedia = useCanvasStore((state) => state.clearNodeResultMedia);
   const appendNodeResultMedia = useCanvasStore((state) => state.appendNodeResultMedia);
   const duplicateNode = useCanvasStore((state) => state.duplicateNode);
-  const deleteNode = useCanvasStore((state) => state.deleteNode);
 
   const removeErrorToast = useCallback((toastId: number) => {
     setErrorToasts((current) => current.filter((toast) => toast.id !== toastId));
@@ -1070,9 +1228,9 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     return inferPortTypeFromHandleId(handleId);
   };
 
-  const getConnectionType = (connection: ConnectionLike): PortType => {
-    const sourceNode = connection.source ? nodes.find((node) => node.id === connection.source) : undefined;
-    const targetNode = connection.target ? nodes.find((node) => node.id === connection.target) : undefined;
+  const getConnectionType = (connection: ConnectionLike, nodeList: Node<NodeData>[] = nodes): PortType => {
+    const sourceNode = connection.source ? nodeList.find((node) => node.id === connection.source) : undefined;
+    const targetNode = connection.target ? nodeList.find((node) => node.id === connection.target) : undefined;
     const sourceType = getPortType(sourceNode, connection.sourceHandle, 'outputs');
     if (sourceType !== 'unknown') {
       return sourceType;
@@ -1090,13 +1248,13 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     return typeof modelControl?.value === 'string' ? modelControl.value : undefined;
   };
 
-  const isConnectionCompatible = (connection: ConnectionLike) => {
+  const isConnectionCompatible = (connection: ConnectionLike, nodeList: Node<NodeData>[] = nodes) => {
     if (!connection.source || !connection.target) {
       return false;
     }
 
-    const sourceNode = nodes.find((node) => node.id === connection.source);
-    const targetNode = nodes.find((node) => node.id === connection.target);
+    const sourceNode = nodeList.find((node) => node.id === connection.source);
+    const targetNode = nodeList.find((node) => node.id === connection.target);
     const targetModel = getNodeModel(targetNode);
 
     if (targetNode?.type === 'image-generator' && targetModel) {
@@ -1916,13 +2074,8 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     setCanvas([...nodes, buildNode(type, position)], edges);
   };
 
-  const handleCutSelection = () => {
-    const selectedIds = nodes.filter((node) => node.selected).map((node) => node.id);
-    if (selectedIds.length === 0) {
-      return;
-    }
-
-    const idsToRemove = new Set(selectedIds);
+  const buildRemovalSet = (seedIds: string[]) => {
+    const idsToRemove = new Set(seedIds);
     let foundNestedChildren = true;
 
     while (foundNestedChildren) {
@@ -1938,6 +2091,149 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         }
       }
     }
+
+    return idsToRemove;
+  };
+
+  const handleDeleteNode = (nodeId: string) => {
+    const idsToRemove = buildRemovalSet([nodeId]);
+    if (idsToRemove.size === 0) {
+      return;
+    }
+
+    rememberGraph();
+    setCanvas(
+      nodes.filter((node) => !idsToRemove.has(node.id)),
+      edges.filter((edge) => !idsToRemove.has(edge.source) && !idsToRemove.has(edge.target))
+    );
+  };
+
+  const handleQuickConnectNode = (sourceNodeId: string, type: AddNodeType) => {
+    const sourceNode = nodes.find((node) => node.id === sourceNodeId);
+    if (!sourceNode) {
+      return;
+    }
+
+    const sourceWidth = typeof sourceNode.style?.width === 'number'
+      ? sourceNode.style.width
+      : sourceNode.type === 'image-generator'
+        ? DEFAULT_IMAGE_GENERATOR_NODE_SIZE.width
+        : DEFAULT_TEXT_PROMPT_NODE_SIZE.width;
+
+    const sourceHeight = typeof sourceNode.style?.height === 'number'
+      ? sourceNode.style.height
+      : sourceNode.type === 'image-generator'
+        ? DEFAULT_IMAGE_GENERATOR_NODE_SIZE.height
+        : DEFAULT_TEXT_PROMPT_NODE_SIZE.height;
+
+    const initialPosition: CanvasPoint = {
+      x: sourceNode.position.x + sourceWidth + 140,
+      y: sourceNode.position.y
+    };
+    const candidateNode = buildNode(type, initialPosition);
+    const candidateNodeHeight = typeof candidateNode.style?.height === 'number'
+      ? candidateNode.style.height
+      : DEFAULT_TEXT_PROMPT_NODE_SIZE.height;
+
+    const chooseCompatibleHandles = (fromNode: Node<NodeData>, toNode: Node<NodeData>) => {
+      const outputs = fromNode.data.outputs ?? [];
+      const inputs = toNode.data.inputs ?? [];
+
+      for (const output of outputs) {
+        for (const input of inputs) {
+          const sourceType = (output.type ?? 'unknown') as PortType;
+          const targetType = (input.type ?? 'unknown') as PortType;
+          const matches =
+            sourceType === 'unknown' ||
+            targetType === 'unknown' ||
+            (portCompatibility[sourceType as keyof typeof portCompatibility]?.includes(targetType) ?? false);
+
+          if (matches) {
+            return {
+              sourceHandle: output.id,
+              targetHandle: input.id
+            };
+          }
+        }
+      }
+
+      if (outputs[0] && inputs[0]) {
+        return {
+          sourceHandle: outputs[0].id,
+          targetHandle: inputs[0].id
+        };
+      }
+
+      return null;
+    };
+
+    const forwardHandles = chooseCompatibleHandles(sourceNode, candidateNode);
+    const backwardHandles = forwardHandles ? null : chooseCompatibleHandles(candidateNode, sourceNode);
+    const isForward = !!forwardHandles;
+
+    const connectedNodePosition: CanvasPoint = isForward
+      ? {
+          x: sourceNode.position.x + sourceWidth + 140,
+          y: sourceNode.position.y + (sourceHeight - candidateNodeHeight) / 2
+        }
+      : {
+          x: sourceNode.position.x - (typeof candidateNode.style?.width === 'number' ? candidateNode.style.width : DEFAULT_TEXT_PROMPT_NODE_SIZE.width) - 140,
+          y: sourceNode.position.y + (sourceHeight - candidateNodeHeight) / 2
+        };
+
+    const newNode = {
+      ...candidateNode,
+      position: connectedNodePosition
+    };
+
+    const nextNodes = [
+      ...nodes.map((node) => ({ ...node, selected: false })),
+      { ...newNode, selected: true }
+    ];
+
+    let nextEdges = edges;
+    if (forwardHandles || backwardHandles) {
+      const edgeSource = isForward ? sourceNode.id : newNode.id;
+      const edgeTarget = isForward ? newNode.id : sourceNode.id;
+      const handles = isForward ? forwardHandles : backwardHandles;
+
+      if (handles) {
+        const connectionType = getConnectionType(
+          {
+            source: edgeSource,
+            target: edgeTarget,
+            sourceHandle: handles.sourceHandle,
+            targetHandle: handles.targetHandle
+          },
+          nextNodes
+        );
+
+        nextEdges = [
+          ...edges,
+          {
+            id: `edge_${edgeSource}_${edgeTarget}_${Date.now()}`,
+            source: edgeSource,
+            target: edgeTarget,
+            sourceHandle: handles.sourceHandle,
+            targetHandle: handles.targetHandle,
+            type: 'connection',
+            data: { connectionType }
+          }
+        ];
+      }
+    }
+
+    rememberGraph();
+    setCanvas(nextNodes, nextEdges);
+  };
+
+  const handleCutSelection = () => {
+    const selectedIds = nodes.filter((node) => node.selected).map((node) => node.id);
+    if (selectedIds.length === 0) {
+      return;
+    }
+
+    const idsToRemove = buildRemovalSet(selectedIds);
 
     rememberGraph();
     setCanvas(
@@ -2012,35 +2308,36 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     };
   }, [handleCutSelection, handleRedo, handleUndo]);
 
-  const isRunnableMediaNode = (node: Node<NodeData>) =>
+  const isRunnableMediaNode = useCallback((node: Node<NodeData>) =>
     node.type === 'image-generator' ||
     node.type === 'video-generator' ||
     (node.type === 'media' && node.data.type === 'video') ||
-    (node.type === 'base' && node.data.icon === 'video');
+    (node.type === 'base' && node.data.icon === 'video')
+  , []);
 
-  const getRunnableNode = (nodeId?: string) => {
+  const getRunnableNode = useCallback((nodeList: Node<NodeData>[], nodeId?: string) => {
     if (nodeId) {
-      const requestedNode = nodes.find((node) => node.id === nodeId);
+      const requestedNode = nodeList.find((node) => node.id === nodeId);
       if (requestedNode && isRunnableMediaNode(requestedNode)) {
         return requestedNode;
       }
       return null;
     }
 
-    const selectedNode = nodes.find((node) => node.selected && isRunnableMediaNode(node));
+    const selectedNode = nodeList.find((node) => node.selected && isRunnableMediaNode(node));
     if (selectedNode) {
       return selectedNode;
     }
 
-    return nodes.find((node) => isRunnableMediaNode(node)) ?? null;
-  };
+    return nodeList.find((node) => isRunnableMediaNode(node)) ?? null;
+  }, [isRunnableMediaNode]);
 
-  const onRun = useCallback(async (requestedNodeId?: string) => {
-    if (running) {
-      return;
-    }
+  const runSingleNode = useCallback(async (nodeId: string) => {
+    const currentState = useCanvasStore.getState();
+    const currentNodes = currentState.nodes;
+    const currentEdges = currentState.edges;
 
-    const runnableNode = getRunnableNode(requestedNodeId);
+    const runnableNode = getRunnableNode(currentNodes, nodeId);
     if (!runnableNode) {
       return;
     }
@@ -2058,13 +2355,13 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     }
 
     const getConnectedSourceNodes = (targetHandleIds: string[]) =>
-      edges
+      currentEdges
         .filter(
           (candidate) =>
             candidate.target === runnableNode.id &&
             handleIdMatches(candidate.targetHandle, targetHandleIds)
         )
-        .map((edge) => nodes.find((node) => node.id === edge.source))
+        .map((edge) => currentNodes.find((node) => node.id === edge.source))
         .filter((node): node is Node<NodeData> => !!node);
 
     const getConnectedSourceNode = (targetHandleIds: string[]) =>
@@ -2105,8 +2402,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       if (connectedPrompt) {
         promptText = connectedPrompt;
       } else {
-        // Legacy fallback for older video nodes that only read from text nodes.
-        const promptNode = nodes.find(
+        const promptNode = currentNodes.find(
           (n) =>
             n.type === 'text-prompt' ||
             n.type === 'text' ||
@@ -2324,7 +2620,6 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       });
     };
 
-    setRunning(true);
     clearNodeResultMedia(runnableNode.id);
     markNode(runnableNode.id, 'processing');
 
@@ -2355,20 +2650,76 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       const message = error instanceof Error && error.message.trim().length > 0
         ? error.message
         : 'Generation failed.';
-      pushErrorToast('Run failed', message);
+      const nodeLabel = runnableNode.data.title ?? runnableNode.data.label ?? 'Node';
+      pushErrorToast('Run failed', `${nodeLabel}: ${message}`);
+      throw new Error(message);
+    }
+  }, [appendNodeResultMedia, clearNodeResultMedia, getRunnableNode, markNode, pushErrorToast, workspaceId]);
+
+  const getExecutionPlanForMode = useCallback((startNodeId: string, mode: RunNodeMode) => {
+    const currentState = useCanvasStore.getState();
+    const currentNodes = currentState.nodes;
+    const currentEdges = currentState.edges;
+    const nodeOrder = currentNodes.map((node) => node.id);
+
+    let scopedNodeIds: Set<string>;
+    if (mode === 'chain-all') {
+      scopedNodeIds = collectConnectedChainIds(startNodeId, currentEdges);
+    } else if (mode === 'upstream-and-self') {
+      scopedNodeIds = collectUpstreamNodeIds(startNodeId, currentEdges);
+    } else if (mode === 'self-and-downstream') {
+      scopedNodeIds = collectDownstreamNodeIds(startNodeId, currentEdges);
+    } else {
+      scopedNodeIds = new Set<string>([startNodeId]);
+    }
+
+    const orderedScopedIds = topologicallySortNodeIds(scopedNodeIds, currentEdges, nodeOrder);
+    return orderedScopedIds.filter((id) => {
+      const node = currentNodes.find((candidate) => candidate.id === id);
+      return !!node && isRunnableMediaNode(node);
+    });
+  }, [isRunnableMediaNode]);
+
+  const onRun = useCallback(async (requestedNodeId?: string, mode: RunNodeMode = 'node-only') => {
+    if (running) {
+      return;
+    }
+
+    const currentState = useCanvasStore.getState();
+    const currentNodes = currentState.nodes;
+    const resolvedNode = getRunnableNode(currentNodes, requestedNodeId);
+    if (!resolvedNode) {
+      return;
+    }
+
+    const startNodeId = requestedNodeId ?? resolvedNode.id;
+    const executionPlan = getExecutionPlanForMode(startNodeId, mode);
+    if (executionPlan.length === 0) {
+      pushErrorToast('Run failed', 'No runnable nodes found for this run mode.');
+      return;
+    }
+
+    setRunning(true);
+    try {
+      for (const nodeId of executionPlan) {
+        await runSingleNode(nodeId);
+      }
+    } catch {
+      // Per-node errors are surfaced by runSingleNode and chain stops on first failure.
     } finally {
       setRunning(false);
     }
-  }, [appendNodeResultMedia, clearNodeResultMedia, edges, markNode, nodes, pushErrorToast, running, workspaceId]);
+  }, [getExecutionPlanForMode, getRunnableNode, pushErrorToast, runSingleNode, running]);
 
   useEffect(() => {
     const onRunNode = (event: Event) => {
       const customEvent = event as CustomEvent<RunNodeEventDetail>;
       const nodeId = customEvent.detail?.nodeId;
+      const mode = customEvent.detail?.mode ?? 'node-only';
       if (!nodeId) {
         return;
       }
-      void onRun(nodeId);
+      void onRun(nodeId, mode);
     };
 
     window.addEventListener(RUN_NODE_EVENT, onRunNode as EventListener);
@@ -2376,6 +2727,41 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       window.removeEventListener(RUN_NODE_EVENT, onRunNode as EventListener);
     };
   }, [onRun]);
+
+  useEffect(() => {
+    const onQuickConnectNode = (event: Event) => {
+      const customEvent = event as CustomEvent<QuickConnectNodeEventDetail>;
+      const nodeId = customEvent.detail?.nodeId;
+      const type = customEvent.detail?.type;
+      if (!nodeId || !type) {
+        return;
+      }
+
+      handleQuickConnectNode(nodeId, type);
+    };
+
+    window.addEventListener(QUICK_CONNECT_NODE_EVENT, onQuickConnectNode as EventListener);
+    return () => {
+      window.removeEventListener(QUICK_CONNECT_NODE_EVENT, onQuickConnectNode as EventListener);
+    };
+  }, [handleQuickConnectNode]);
+
+  useEffect(() => {
+    const onDeleteNode = (event: Event) => {
+      const customEvent = event as CustomEvent<DeleteNodeEventDetail>;
+      const nodeId = customEvent.detail?.nodeId;
+      if (!nodeId) {
+        return;
+      }
+
+      handleDeleteNode(nodeId);
+    };
+
+    window.addEventListener(DELETE_NODE_EVENT, onDeleteNode as EventListener);
+    return () => {
+      window.removeEventListener(DELETE_NODE_EVENT, onDeleteNode as EventListener);
+    };
+  }, [handleDeleteNode]);
 
   const userMenuItemClass = 'w-full rounded-lg border border-transparent px-2.5 py-2 text-left text-sm text-slate-200 transition hover:border-slate-700/70 hover:bg-slate-800/70';
 
@@ -2628,7 +3014,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
               top={nodeContextMenu.top}
               left={nodeContextMenu.left}
               onDuplicate={(id, x, y) => duplicateNode(id, x, y)}
-              onDelete={deleteNode}
+              onDelete={handleDeleteNode}
               onClose={() => setNodeContextMenu(null)}
             />
           )}

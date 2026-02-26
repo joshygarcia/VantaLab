@@ -7,9 +7,3 @@ dist/
 npm-debug.log*
 apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
-Image Model Credit Pricing Spreadsheet.csv
-current_nodes.png
-node_selected.png
-node.png
-Screenshot 2026-02-24.png
-Video Generation Model Pricing Spreadsheet.csv
