@@ -5,6 +5,8 @@ import { PrismaService } from '../database/prisma.service';
 import { CREDIT_PACKAGES, CreditPackage } from './billing.constants';
 
 type StripeWebhookEvent = Stripe.Event;
+const STRIPE_API_VERSION: Stripe.LatestApiVersion =
+  Stripe.API_VERSION as Stripe.LatestApiVersion;
 
 @Injectable()
 export class BillingService {
@@ -15,7 +17,7 @@ export class BillingService {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (stripeSecretKey) {
       this.stripe = new Stripe(stripeSecretKey, {
-        apiVersion: '2026-01-28.clover'
+        apiVersion: STRIPE_API_VERSION
       });
     }
   }
@@ -176,7 +178,7 @@ export class BillingService {
       }
 
       this.stripe = new Stripe(stripeSecretKey, {
-        apiVersion: '2026-01-28.clover'
+        apiVersion: STRIPE_API_VERSION
       });
     }
 
