@@ -1,0 +1,19 @@
+Model & Modality,Credit Cost
+"Qwen z-image, text-to-image, 1.0s",0.8 per image
+"Google nano banana pro, 1/2K",18.0 per image
+"Google nano banana pro, 4K",24.0 per image
+"grok-imagine, image-to-image",4.0 per 2 images
+"grok-imagine, text-to-image",4.0 per 6 images
+"OpenAI 4o image, text-to-image",6.0 per image
+"Qwen Image, text-to-image",4.0 per image
+"Qwen Image, image-to-image",4.0 per image
+"Google nano banana, text-to-image",4.0 per image
+"Topaz Image Upscaler, image-upscale, 8K",40.0 per image
+"Topaz Image Upscaler, image-upscale, 4K",20.0 per image
+"Topaz Image Upscaler, image-upscale, 2K",10.0 per image
+"Midjourney, image-to-image, fast",8.0 per request
+"Midjourney, image-to-image, turbo",16.0 per request
+"Midjourney, text-to-image, fast",8.0 per request
+"Midjourney, text-to-image, turbo",16.0 per request
+"Midjourney, image-to-image, relaxed",3.0 per request
+"Midjourney, text-to-image, relaxed",3.0 per request

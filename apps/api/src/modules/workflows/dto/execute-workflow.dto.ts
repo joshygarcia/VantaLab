@@ -96,6 +96,11 @@ class WorkflowParametersDto {
   @IsOptional()
   resolution?: string;
 
+  @IsString()
+  @IsOptional()
+  @IsIn(['png', 'jpg'])
+  outputFormat?: string;
+
   @IsNumber()
   @IsOptional()
   amount?: number;

@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { createCustomSpace, deleteCustomSpace, listCustomSpaces, CustomSpaceItem } from '@/lib/api';
-import { Plus, X, Server, Layers, Settings2, Globe, Lock, Share2, Unlock } from 'lucide-react';
+import { createCustomSpace, deleteCustomSpace, listCustomSpaces, updateCustomSpace, CustomSpaceItem } from '@/lib/api';
+import { Plus, X, Server, Layers, Globe, Lock, Share2, Unlock } from 'lucide-react';
 
 type SpaceProtection = CustomSpaceItem['protection'];
 
@@ -78,10 +78,18 @@ export default function SpacesPage() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingSpace, setEditingSpace] = useState<CustomSpaceItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editProtection, setEditProtection] = useState<SpaceProtection>('standard');
+  const [editSharedWorkspaceIdsInput, setEditSharedWorkspaceIdsInput] = useState('');
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsCreateModalOpen(false);
+      if (e.key === 'Escape') {
+        setIsCreateModalOpen(false);
+        setEditingSpace(null);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -139,6 +147,11 @@ export default function SpacesPage() {
   };
 
   const handleDelete = async (space: CustomSpaceItem) => {
+    if (space.ownerWorkspaceId !== ownerWorkspaceId) {
+      setStatus(`You can only delete spaces owned by ${ownerWorkspaceId}`);
+      return;
+    }
+
     if (isImmutableProtection(space.protection)) {
       setStatus(`${space.name} is ${protectionLabels[space.protection]} and cannot be deleted`);
       return;
@@ -154,6 +167,60 @@ export default function SpacesPage() {
       setStatus(`Deleted ${space.name}`);
     } catch {
       setStatus('Failed to delete custom space');
+    }
+  };
+
+  const startEdit = (space: CustomSpaceItem) => {
+    if (space.ownerWorkspaceId !== ownerWorkspaceId) {
+      setStatus(`You can only edit spaces owned by ${ownerWorkspaceId}`);
+      return;
+    }
+
+    if (isImmutableProtection(space.protection)) {
+      setStatus(`${space.name} is ${protectionLabels[space.protection]} and cannot be edited`);
+      return;
+    }
+
+    setEditingSpace(space);
+    setEditName(space.name);
+    setEditDescription(space.description);
+    setEditProtection(space.protection);
+    setEditSharedWorkspaceIdsInput(space.sharedWorkspaceIds.join(', '));
+  };
+
+  const handleUpdate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!editingSpace) {
+      return;
+    }
+
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      setStatus('Space name is required');
+      return;
+    }
+
+    const sharedWorkspaceIds = editSharedWorkspaceIdsInput
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    try {
+      const response = await updateCustomSpace(ownerWorkspaceId, editingSpace.id, {
+        name: trimmedName,
+        description: editDescription.trim() || undefined,
+        protection: editProtection,
+        sharedWorkspaceIds: editProtection === 'team-shared' ? sharedWorkspaceIds : undefined
+      });
+
+      setCustomSpaces((previous) =>
+        previous.map((item) => (item.id === response.item.id ? response.item : item))
+      );
+      setStatus(`Updated ${response.item.name}`);
+      setEditingSpace(null);
+    } catch {
+      setStatus('Failed to update custom space');
     }
   };
 
@@ -260,6 +327,12 @@ export default function SpacesPage() {
       </header>
 
       <div className="grid gap-6 mt-6 xl:grid-cols-[3fr,4fr]">
+        {status ? (
+          <div className="xl:col-span-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-zinc-300">
+            {status}
+          </div>
+        ) : null}
+
         <section className={`${panelClass} p-5 flex flex-col`}>
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -334,6 +407,23 @@ export default function SpacesPage() {
 
                   <p className="mt-1 text-xs text-zinc-400 line-clamp-2 min-h-8">{space.description}</p>
 
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <span className="rounded-md border border-white/5 bg-white/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-zinc-400">
+                      {protectionLabels[space.protection]}
+                    </span>
+                    {space.ownerWorkspaceId !== ownerWorkspaceId ? (
+                      <span className="rounded-md border border-white/5 bg-white/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-zinc-400">
+                        Shared by {space.ownerWorkspaceId}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {space.protection === 'team-shared' && space.sharedWorkspaceIds.length > 0 ? (
+                    <p className="mt-2 text-[10px] text-zinc-500">
+                      Shared with: {space.sharedWorkspaceIds.join(', ')}
+                    </p>
+                  ) : null}
+
                   <div className="mt-4 flex items-center gap-2">
                     <Link
                       href={`/canvas/${space.id}`}
@@ -344,9 +434,18 @@ export default function SpacesPage() {
 
                     <button
                       type="button"
+                      onClick={() => startEdit(space)}
+                      disabled={space.ownerWorkspaceId !== ownerWorkspaceId || isImmutableProtection(space.protection)}
+                      className="inline-flex h-7 items-center justify-center rounded-md px-2.5 text-[11px] font-semibold text-zinc-500 transition hover:bg-white/10 hover:text-zinc-300 disabled:opacity-40"
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => handleDelete(space)}
-                      disabled={isImmutableProtection(space.protection)}
-                      className="inline-flex h-7 items-center justify-center rounded-md px-2.5 text-[11px] font-semibold text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-0"
+                      disabled={space.ownerWorkspaceId !== ownerWorkspaceId || isImmutableProtection(space.protection)}
+                      className="inline-flex h-7 items-center justify-center rounded-md px-2.5 text-[11px] font-semibold text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-40"
                     >
                       Delete
                     </button>
@@ -450,6 +549,94 @@ export default function SpacesPage() {
                   className="h-9 rounded-lg bg-zinc-100 px-5 text-xs font-semibold text-ink-950 transition hover:bg-white shadow-sm"
                 >
                   Create Space
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingSpace && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEditingSpace(null);
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-950 p-6 shadow-2xl">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-zinc-50">Edit Custom Space</h2>
+              <button
+                type="button"
+                onClick={() => setEditingSpace(null)}
+                className="text-zinc-500 hover:text-zinc-300 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form className="flex flex-col gap-4" onSubmit={handleUpdate}>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Name</label>
+                <input
+                  value={editName}
+                  onChange={(event) => setEditName(event.target.value)}
+                  maxLength={60}
+                  className={inputClass}
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Description</label>
+                <input
+                  value={editDescription}
+                  onChange={(event) => setEditDescription(event.target.value)}
+                  maxLength={140}
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Protection</label>
+                <select
+                  value={editProtection}
+                  onChange={(event) => setEditProtection(event.target.value as SpaceProtection)}
+                  className={inputClass}
+                >
+                  <option value="standard">Standard (Editable)</option>
+                  <option value="locked">Locked (Frozen)</option>
+                  <option value="team-shared">Team-shared (Collaborative)</option>
+                </select>
+                <span className="text-[10px] text-zinc-400 leading-snug">{protectionDescription[editProtection]}</span>
+              </div>
+
+              {editProtection === 'team-shared' ? (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Shared Workspaces</label>
+                  <input
+                    value={editSharedWorkspaceIdsInput}
+                    onChange={(event) => setEditSharedWorkspaceIdsInput(event.target.value)}
+                    placeholder="IDs, comma-separated"
+                    className={inputClass}
+                  />
+                </div>
+              ) : null}
+
+              <div className="mt-2 flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingSpace(null)}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="h-9 rounded-lg bg-zinc-100 px-5 text-xs font-semibold text-ink-950 transition hover:bg-white shadow-sm"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>

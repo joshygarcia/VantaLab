@@ -5,6 +5,8 @@ import { PrismaService } from '../database/prisma.service';
 import { CREDIT_PACKAGES, CreditPackage } from './billing.constants';
 
 type StripeWebhookEvent = Stripe.Event;
+const STRIPE_API_VERSION: Stripe.LatestApiVersion =
+  Stripe.API_VERSION as Stripe.LatestApiVersion;
 
 @Injectable()
 export class BillingService {
@@ -15,7 +17,7 @@ export class BillingService {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (stripeSecretKey) {
       this.stripe = new Stripe(stripeSecretKey, {
-        apiVersion: '2026-01-28.clover'
+        apiVersion: STRIPE_API_VERSION
       });
     }
   }
@@ -96,6 +98,70 @@ export class BillingService {
     };
   }
 
+  async hasSufficientCredits(userId: string, requiredCredits: number): Promise<boolean> {
+    if (requiredCredits <= 0) {
+      return true;
+    }
+
+    const balance = await this.prisma.userCreditBalance.findUnique({
+      where: { userId },
+      select: { credits: true }
+    });
+
+    return (balance?.credits ?? 0) >= requiredCredits;
+  }
+
+  async spendCreditsForWorkflow(
+    userId: string,
+    requiredCredits: number
+  ): Promise<{ success: boolean; remainingCredits: number }> {
+    if (requiredCredits <= 0) {
+      const currentBalance = await this.getBalance(userId);
+      return {
+        success: true,
+        remainingCredits: currentBalance.credits
+      };
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const decrementResult = await tx.userCreditBalance.updateMany({
+        where: {
+          userId,
+          credits: {
+            gte: requiredCredits
+          }
+        },
+        data: {
+          credits: {
+            decrement: requiredCredits
+          }
+        }
+      });
+
+      if (decrementResult.count === 0) {
+        const current = await tx.userCreditBalance.findUnique({
+          where: { userId },
+          select: { credits: true }
+        });
+
+        return {
+          success: false,
+          remainingCredits: current?.credits ?? 0
+        };
+      }
+
+      const updated = await tx.userCreditBalance.findUnique({
+        where: { userId },
+        select: { credits: true }
+      });
+
+      return {
+        success: true,
+        remainingCredits: updated?.credits ?? 0
+      };
+    });
+  }
+
   private getCreditPackage(packageId: string): CreditPackage {
     const creditPackage = CREDIT_PACKAGES[packageId];
     if (!creditPackage) {
@@ -112,7 +178,7 @@ export class BillingService {
       }
 
       this.stripe = new Stripe(stripeSecretKey, {
-        apiVersion: '2026-01-28.clover'
+        apiVersion: STRIPE_API_VERSION
       });
     }
 

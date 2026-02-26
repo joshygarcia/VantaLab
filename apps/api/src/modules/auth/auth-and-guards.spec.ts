@@ -73,6 +73,55 @@ describe('Auth API', () => {
     expect(response.body.sub).toBe('user-1');
     expect(response.body.workspaceIds).toEqual(['local', 'ws-2']);
   });
+
+  it('does not persist local dev-user claims and resolves /api/v1/auth/me as developer', async () => {
+    const token = await jwtService.signAsync(
+      {
+        sub: 'dev-user',
+        workspaceIds: ['local']
+      },
+      { secret: JWT_SECRET }
+    );
+
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .set('authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.sub).toBe('dev-user');
+    expect(response.body.workspaceIds).toEqual(['local']);
+    expect(response.body.role).toBe('developer');
+  });
+
+  it('reuses a stable dev user id for /api/v1/auth/dev-token when userId is omitted', async () => {
+    const first = await request(app.getHttpServer())
+      .post('/api/v1/auth/dev-token')
+      .send({
+        workspaceIds: ['local']
+      })
+      .expect(200);
+
+    const second = await request(app.getHttpServer())
+      .post('/api/v1/auth/dev-token')
+      .send({
+        workspaceIds: ['local']
+      })
+      .expect(200);
+
+    const firstClaims = await jwtService.verifyAsync<{ sub: string; workspaceIds: string[] }>(
+      first.body.accessToken,
+      { secret: JWT_SECRET }
+    );
+    const secondClaims = await jwtService.verifyAsync<{ sub: string; workspaceIds: string[] }>(
+      second.body.accessToken,
+      { secret: JWT_SECRET }
+    );
+
+    expect(firstClaims.sub).toBe('dev-user');
+    expect(secondClaims.sub).toBe('dev-user');
+    expect(firstClaims.workspaceIds).toEqual(['local']);
+    expect(secondClaims.workspaceIds).toEqual(['local']);
+  });
 });
 
 describe('Workflow Guards', () => {

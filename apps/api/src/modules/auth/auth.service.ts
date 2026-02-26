@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { randomUUID } from 'crypto';
 import { CreateDevTokenDto } from './dto/create-dev-token.dto';
 import { AuthClaims } from './auth.types';
 import { DEFAULT_DEV_WORKSPACE, JWT_EXPIRES_IN_SECONDS, JWT_SECRET } from './auth.constants';
+
+const DEFAULT_DEV_USER_ID = 'dev-user';
 
 @Injectable()
 export class AuthService {
@@ -11,9 +12,10 @@ export class AuthService {
 
   async createDevToken(payload: CreateDevTokenDto) {
     const workspaceIds = payload.workspaceIds?.length ? payload.workspaceIds : [DEFAULT_DEV_WORKSPACE];
+    const stableDevUserId = process.env.DEV_AUTH_USER_ID?.trim() || DEFAULT_DEV_USER_ID;
 
     const claims: AuthClaims = {
-      sub: payload.userId ?? `dev-user-${randomUUID()}`,
+      sub: payload.userId ?? stableDevUserId,
       workspaceIds
     };
 

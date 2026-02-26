@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Observable, Subject, filter } from 'rxjs';
 import { PrismaService } from '../database/prisma.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
+import { BillingService } from '../billing/billing.service';
+import { calculateWorkflowCreditCost } from './workflow-credit-cost';
 
 type WorkflowQueuePayload = {
   workflowJobId: string;
@@ -31,6 +33,7 @@ type StoredWorkflowParameters = {
   referenceImageUrl?: string;
   aspectRatio?: string;
   resolution?: string;
+  outputFormat?: 'png' | 'jpg';
   amount?: number;
   duration?: string;
   mode?: 'std' | 'pro';
@@ -59,7 +62,8 @@ export class WorkflowQueueService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly apiKeysService: ApiKeysService
+    private readonly apiKeysService: ApiKeysService,
+    private readonly billingService: BillingService
   ) { }
 
   async enqueue(workflowJobId: string) {
@@ -238,6 +242,10 @@ export class WorkflowQueueService {
           requestBody.input.resolution = params.resolution;
         }
 
+        if (targetedModel === 'nano-banana-pro' && params.outputFormat) {
+          requestBody.input.output_format = params.outputFormat;
+        }
+
         if (referenceImageUrl) {
           if (targetedModel === 'nano-banana-pro') {
             requestBody.input.image_input = [referenceImageUrl];
@@ -378,6 +386,14 @@ export class WorkflowQueueService {
 
       if (!mediaUrl) {
         throw new Error('No media URL returned from Kie.ai API polling');
+      }
+
+      const workflowCreditCost = calculateWorkflowCreditCost(existing.model, params);
+      const spendResult = await this.billingService.spendCreditsForWorkflow(existing.userId, workflowCreditCost);
+      if (!spendResult.success) {
+        throw new Error(
+          `Insufficient credits. This run requires ${workflowCreditCost} credits (balance: ${spendResult.remainingCredits}).`
+        );
       }
 
       await this.prisma.workflowJob.update({

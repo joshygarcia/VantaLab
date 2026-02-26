@@ -2,6 +2,17 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { ApiKey, Prisma } from '@prisma/client';
 
+type ApiKeyWithRemainingCredits = ApiKey & {
+    remainingCredits: number | null;
+    remainingCreditsError?: string | null;
+};
+
+type KieRemainingCreditsResponse = {
+    code?: number;
+    msg?: string;
+    data?: number;
+};
+
 @Injectable()
 export class ApiKeysService {
     constructor(private readonly prisma: PrismaService) { }
@@ -10,10 +21,29 @@ export class ApiKeysService {
         return this.prisma.apiKey.create({ data });
     }
 
-    async findAll(): Promise<ApiKey[]> {
-        return this.prisma.apiKey.findMany({
+    async findAll(): Promise<ApiKeyWithRemainingCredits[]> {
+        const keys = await this.prisma.apiKey.findMany({
             orderBy: { createdAt: 'desc' },
         });
+
+        const keysWithCredits = await Promise.all(keys.map(async (key) => {
+            try {
+                const remainingCredits = await this.getRemainingCreditsForKey(key.key);
+                return {
+                    ...key,
+                    remainingCredits,
+                    remainingCreditsError: null
+                };
+            } catch (error) {
+                return {
+                    ...key,
+                    remainingCredits: null,
+                    remainingCreditsError: error instanceof Error ? error.message : 'Failed to fetch remaining credits'
+                };
+            }
+        }));
+
+        return keysWithCredits;
     }
 
     async setStatus(id: string, isActive: boolean): Promise<ApiKey> {
@@ -65,5 +95,29 @@ export class ApiKeysService {
                 usageCount: { increment: 1 },
             },
         });
+    }
+
+    private async getRemainingCreditsForKey(apiKey: string): Promise<number | null> {
+        const response = await fetch('https://api.kie.ai/api/v1/chat/credit', {
+            method: 'GET',
+            headers: {
+                Authorization: `Bearer ${apiKey}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Kie credits API failed with status ${response.status}`);
+        }
+
+        const payload = (await response.json()) as KieRemainingCreditsResponse;
+        if (payload.code !== 200) {
+            throw new Error(payload.msg || `Kie credits API returned code ${payload.code ?? 'unknown'}`);
+        }
+
+        if (typeof payload.data !== 'number' || !Number.isFinite(payload.data)) {
+            throw new Error('Kie credits API returned an invalid credits value');
+        }
+
+        return Math.max(0, Math.floor(payload.data));
     }
 }

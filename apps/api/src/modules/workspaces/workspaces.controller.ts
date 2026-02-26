@@ -6,6 +6,7 @@ import { UpdateKlingElementsLibraryDto } from './dto/update-kling-elements-libra
 import { UploadWorkspaceFileDto } from './dto/upload-workspace-file.dto';
 import { CreateCustomSpaceDto } from './dto/create-custom-space.dto';
 import { UpdateCustomSpaceDto } from './dto/update-custom-space.dto';
+import { UpdateWorkspaceCanvasDto } from './dto/update-workspace-canvas.dto';
 
 @Controller('api/v1/workspaces')
 export class WorkspacesController {
@@ -28,6 +29,27 @@ export class WorkspacesController {
     ) {
         const user = this.getAuthenticatedUser(request);
         return this.workspacesService.updateSettings(id, payload, user.workspaceIds, user.id);
+    }
+
+    @Get(':id/canvas')
+    @UseGuards(JwtAuthGuard)
+    getWorkspaceCanvas(
+        @Param('id') id: string,
+        @Req() request: AuthenticatedRequest
+    ) {
+        const user = this.getAuthenticatedUser(request);
+        return this.workspacesService.getWorkspaceCanvas(id, user.workspaceIds);
+    }
+
+    @Put(':id/canvas')
+    @UseGuards(JwtAuthGuard)
+    updateWorkspaceCanvas(
+        @Param('id') id: string,
+        @Body() payload: UpdateWorkspaceCanvasDto,
+        @Req() request: AuthenticatedRequest
+    ) {
+        const user = this.getAuthenticatedUser(request);
+        return this.workspacesService.updateWorkspaceCanvas(id, payload, user.workspaceIds, user.id);
     }
 
     @Get(':id/kling-elements-library')

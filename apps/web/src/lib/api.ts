@@ -2,8 +2,11 @@ import { createClient } from '@/lib/supabase/client';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 const DEV_JWT = process.env.NEXT_PUBLIC_DEV_JWT;
+const IS_DEV_ENV = process.env.NODE_ENV !== 'production';
+const DEV_FALLBACK_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID ?? 'dev-user';
 
 const workspaceTokens = new Map<string, string>();
+const tokenWorkspaceAccess = new Map<string, boolean>();
 
 export type KlingElementLibraryItem = {
   id: string;
@@ -46,6 +49,7 @@ type ExecuteRequest = {
     referenceImageUrl?: string;
     aspectRatio?: string;
     resolution?: string;
+    outputFormat?: 'png' | 'jpg';
     amount?: number;
     duration?: string;
     mode?: 'std' | 'pro';
@@ -71,6 +75,7 @@ type JobResponse = {
   id: string;
   status: 'queued' | 'processing' | 'succeeded' | 'failed';
   mediaUrl?: string;
+  error?: string;
 };
 
 type JobStreamHandlers = {
@@ -94,6 +99,16 @@ type BillingTransactionsResponse = {
   transactions: BillingTransaction[];
 };
 
+export type WorkspaceCanvasPayload = {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  viewport?: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
+};
+
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -113,17 +128,27 @@ async function getAccessToken(workspaceId: string): Promise<string> {
   const supabase = createClient();
   const { data } = await supabase.auth.getSession();
 
-  if (data.session?.access_token) {
-    return data.session.access_token;
-  }
-
-  if (DEV_JWT) {
-    return DEV_JWT;
-  }
-
   const existing = workspaceTokens.get(workspaceId);
   if (existing) {
     return existing;
+  }
+
+  if (data.session?.access_token) {
+    const hasWorkspaceAccess = await tokenCanAccessWorkspace(data.session.access_token, workspaceId);
+    if (hasWorkspaceAccess) {
+      return data.session.access_token;
+    }
+  }
+
+  if (DEV_JWT) {
+    const hasWorkspaceAccess = await tokenCanAccessWorkspace(DEV_JWT, workspaceId);
+    if (hasWorkspaceAccess) {
+      return DEV_JWT;
+    }
+  }
+
+  if (!IS_DEV_ENV) {
+    throw new Error('Failed to acquire auth token for workspace scope');
   }
 
   const response = await fetch(`${API_BASE}/auth/dev-token`, {
@@ -131,7 +156,10 @@ async function getAccessToken(workspaceId: string): Promise<string> {
     headers: {
       'content-type': 'application/json'
     },
-    body: JSON.stringify({ workspaceIds: [workspaceId] })
+    body: JSON.stringify({
+      userId: DEV_FALLBACK_USER_ID,
+      workspaceIds: [workspaceId]
+    })
   });
 
   if (!response.ok) {
@@ -140,7 +168,45 @@ async function getAccessToken(workspaceId: string): Promise<string> {
 
   const body = (await response.json()) as { accessToken: string };
   workspaceTokens.set(workspaceId, body.accessToken);
+  tokenWorkspaceAccess.set(buildTokenWorkspaceCacheKey(body.accessToken, workspaceId), true);
   return body.accessToken;
+}
+
+function buildTokenWorkspaceCacheKey(token: string, workspaceId: string): string {
+  return `${token}::${workspaceId}`;
+}
+
+async function tokenCanAccessWorkspace(token: string, workspaceId: string): Promise<boolean> {
+  const cacheKey = buildTokenWorkspaceCacheKey(token, workspaceId);
+  const cached = tokenWorkspaceAccess.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/me`, {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      tokenWorkspaceAccess.set(cacheKey, false);
+      return false;
+    }
+
+    const payload = (await response.json()) as { workspaceIds?: unknown };
+    const workspaceIds = Array.isArray(payload.workspaceIds)
+      ? payload.workspaceIds.filter((entry): entry is string => typeof entry === 'string')
+      : [];
+    const allowed = workspaceIds.includes(workspaceId);
+    tokenWorkspaceAccess.set(cacheKey, allowed);
+    return allowed;
+  } catch {
+    tokenWorkspaceAccess.set(cacheKey, false);
+    return false;
+  }
 }
 
 export async function executeWorkflow(payload: ExecuteRequest): Promise<ExecuteResponse> {
@@ -156,6 +222,20 @@ export async function executeWorkflow(payload: ExecuteRequest): Promise<ExecuteR
   });
 
   if (!response.ok) {
+    try {
+      const errorPayload = (await response.json()) as { message?: string | string[] };
+      if (Array.isArray(errorPayload.message) && errorPayload.message.length > 0) {
+        throw new Error(errorPayload.message[0]);
+      }
+      if (typeof errorPayload.message === 'string' && errorPayload.message.trim().length > 0) {
+        throw new Error(errorPayload.message);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.trim().length > 0) {
+        throw error;
+      }
+    }
+
     throw new Error('Failed to queue workflow');
   }
 
@@ -344,6 +424,44 @@ export async function deleteCustomSpace(
 
   if (!response.ok) {
     throw new Error('Failed to delete custom space');
+  }
+
+  return response.json();
+}
+
+export async function getWorkspaceCanvas(workspaceId: string): Promise<WorkspaceCanvasPayload> {
+  const accessToken = await getAccessToken(workspaceId);
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/canvas`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch workspace canvas');
+  }
+
+  return response.json();
+}
+
+export async function updateWorkspaceCanvas(
+  workspaceId: string,
+  payload: WorkspaceCanvasPayload
+): Promise<{ success: boolean }> {
+  const accessToken = await getAccessToken(workspaceId);
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/canvas`, {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to save workspace canvas');
   }
 
   return response.json();
