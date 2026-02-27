@@ -81,6 +81,51 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Validate required Secret Manager secrets
+        run: |
+          REQUIRED_SECRETS=(
+            DEV_DATABASE_URL
+            DEV_DIRECT_URL
+            DEV_JWT_SECRET
+            DEV_SUPABASE_URL
+            DEV_SUPABASE_ANON_KEY
+            DEV_SUPABASE_SERVICE_ROLE_KEY
+            DEV_REDIS_URL
+            DEV_STRIPE_SECRET_KEY
+            DEV_STRIPE_WEBHOOK_SECRET
+          )
+
+          MISSING_SECRETS=()
+
+          for SECRET_NAME in "${REQUIRED_SECRETS[@]}"; do
+            if ! DESCRIBE_OUTPUT=$(gcloud secrets describe "$SECRET_NAME" --project "$GCP_PROJECT_ID" 2>&1); then
+              if [[ "$DESCRIBE_OUTPUT" == *"NOT_FOUND"* ]]; then
+                MISSING_SECRETS+=("$SECRET_NAME")
+                continue
+              fi
+
+              echo "::error::Unable to validate secret '$SECRET_NAME': $DESCRIBE_OUTPUT"
+              exit 1
+            fi
+
+            if ! VERSION_OUTPUT=$(gcloud secrets versions describe latest --secret="$SECRET_NAME" --project "$GCP_PROJECT_ID" 2>&1); then
+              if [[ "$VERSION_OUTPUT" == *"NOT_FOUND"* ]]; then
+                MISSING_SECRETS+=("$SECRET_NAME (missing latest version)")
+                continue
+              fi
+
+              echo "::error::Unable to validate latest version for secret '$SECRET_NAME': $VERSION_OUTPUT"
+              exit 1
+            fi
+          done
+
+          if [[ ${#MISSING_SECRETS[@]} -gt 0 ]]; then
+            echo "::error::Missing required Secret Manager secrets in project '$GCP_PROJECT_ID': ${MISSING_SECRETS[*]}"
+            exit 1
+          fi
+
+          echo "All required Secret Manager secrets are present."
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
