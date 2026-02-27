@@ -1,0 +1,18 @@
+{
+  "local": [
+    {
+      "id": "nora_gray_1772102178109",
+      "name": "Nora Gray",
+      "description": "Influencer",
+      "imageUrls": [
+        "https://esxcqbmwtndpmdnazvmm.supabase.co/storage/v1/object/public/element-library/local/36051a03-89fc-4051-a3a5-4c8ba87e1620/1772102174960_77747fe0.png",
+        "https://esxcqbmwtndpmdnazvmm.supabase.co/storage/v1/object/public/element-library/local/36051a03-89fc-4051-a3a5-4c8ba87e1620/1772102176466_6bcbb023.png",
+        "https://esxcqbmwtndpmdnazvmm.supabase.co/storage/v1/object/public/element-library/local/36051a03-89fc-4051-a3a5-4c8ba87e1620/1772102177063_722acf06.jpeg",
+        "https://esxcqbmwtndpmdnazvmm.supabase.co/storage/v1/object/public/element-library/local/36051a03-89fc-4051-a3a5-4c8ba87e1620/1772102177429_76333c42.png"
+      ],
+      "tags": [
+        "character"
+      ]
+    }
+  ]
+}

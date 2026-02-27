@@ -11,6 +11,7 @@ import {
   CreditCard,
   FlaskConical,
   GraduationCap,
+  History,
   House,
   LibraryBig,
   LucideIcon,
@@ -169,7 +170,8 @@ export default function Sidebar() {
 
   const toolLinks: Array<{ name: string; href: string; icon: LucideIcon }> = [
     { name: 'Spaces', href: '/spaces', icon: Compass },
-    { name: 'Kling Library', href: '/library', icon: LibraryBig },
+    { name: 'Element Library', href: '/library', icon: LibraryBig },
+    { name: 'History', href: '/history', icon: History },
     { name: 'Element Creator Lab', href: '/element-creator-lab', icon: FlaskConical }
   ];
 

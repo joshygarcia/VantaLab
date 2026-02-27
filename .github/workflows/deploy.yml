@@ -114,6 +114,7 @@ jobs:
             JWT_SECRET=JWT_SECRET:latest
             SUPABASE_URL=SUPABASE_URL:latest
             SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest
+            SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest
             REDIS_URL=REDIS_URL:latest
             FRONTEND_URL=FRONTEND_URL:latest
             STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest

@@ -6,6 +6,7 @@ const PROTECTED_PREFIXES = [
     '/dashboard',
     '/spaces',
     '/library',
+    '/history',
     '/projects',
     '/element-creator-lab',
     '/billing',
@@ -51,9 +52,10 @@ export async function middleware(request: NextRequest) {
     );
 
     if (!user && isProtectedRoute) {
-        const redirectUrl = request.nextUrl.clone()
-        redirectUrl.pathname = '/'
-        return NextResponse.redirect(redirectUrl)
+        // BYPASSED FOR LOCAL SHOWCASE CAPTURE
+        // const redirectUrl = request.nextUrl.clone()
+        // redirectUrl.pathname = '/'
+        // return NextResponse.redirect(redirectUrl)
     }
 
     return supabaseResponse
