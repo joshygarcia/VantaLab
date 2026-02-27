@@ -7,3 +7,5 @@ dist/
 npm-debug.log*
 apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
+apps/showcase
+

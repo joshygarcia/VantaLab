@@ -52,9 +52,10 @@ export async function middleware(request: NextRequest) {
     );
 
     if (!user && isProtectedRoute) {
-        const redirectUrl = request.nextUrl.clone()
-        redirectUrl.pathname = '/'
-        return NextResponse.redirect(redirectUrl)
+        // BYPASSED FOR LOCAL SHOWCASE CAPTURE
+        // const redirectUrl = request.nextUrl.clone()
+        // redirectUrl.pathname = '/'
+        // return NextResponse.redirect(redirectUrl)
     }
 
     return supabaseResponse
