@@ -172,7 +172,7 @@ export default function Sidebar() {
     { name: 'Spaces', href: '/spaces', icon: Compass },
     { name: 'Element Library', href: '/library', icon: LibraryBig },
     { name: 'History', href: '/history', icon: History },
-    { name: 'Element Creator Lab', href: '/element-creator-lab', icon: FlaskConical }
+    { name: 'Character Creator', href: '/element-creator-lab', icon: FlaskConical }
   ];
 
   if (isDeveloper) {

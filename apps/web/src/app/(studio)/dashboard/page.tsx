@@ -76,8 +76,8 @@ export default function HomePage() {
               <FlaskConical className="h-5 w-5" />
             </div>
             <div className="mt-8">
-              <strong className="block text-sm font-semibold text-zinc-50">Creator Lab</strong>
-              <p className="mt-1 text-xs text-zinc-400">Design custom elements</p>
+              <strong className="block text-sm font-semibold text-zinc-50">Character Creator</strong>
+              <p className="mt-1 text-xs text-zinc-400">Design custom characters</p>
             </div>
             <div className="absolute inset-0 bg-gradient-to-t from-zinc-100/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
           </Link>

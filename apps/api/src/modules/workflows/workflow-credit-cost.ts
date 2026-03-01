@@ -28,6 +28,8 @@ const IMAGE_COST_PER_IMAGE: Record<'z-image' | 'nano-banana' | 'nano-banana-pro'
 const VEO_31_FAST_COST = 60;
 const VEO_31_QUALITY_COST = 250;
 const KLING_TURBO_COST_PER_SECOND = 8.4; // 42 / 5 and 84 / 10
+const CHARACTER_PROMPTING_COST = 1;
+const CHARACTER_IMAGE_SET_COST = 5.5 * 3;
 
 const MIN_DURATION_SECONDS = 3;
 const MAX_DURATION_SECONDS = 15;
@@ -57,6 +59,10 @@ export function calculateWorkflowCreditCost(model: string, parameters: WorkflowP
     const amount = normalizeAmount(parameters.amount);
     const perImageCost = IMAGE_COST_PER_IMAGE[model](parameters.resolution);
     return finalizeCredits(perImageCost * amount);
+  }
+
+  if (model === 'character-suite') {
+    return finalizeCredits(CHARACTER_PROMPTING_COST + CHARACTER_IMAGE_SET_COST);
   }
 
   if (model === 'veo-3.1') {

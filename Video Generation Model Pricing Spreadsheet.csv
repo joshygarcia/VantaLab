@@ -1,0 +1,51 @@
+Model & Modality,Credit Cost
+"Open AI sora 2, text-to-video, stable-10.0s",35 per video
+"Open AI sora 2, image-to-video, Standard-15.0s",35.0 per video
+"Open AI sora 2, text-to-video, Standard-15.0s",35.0 per video
+"Open AI sora 2, image-to-video, Standard-10.0s",30.0 per video
+"Open AI sora 2, text-to-video, Standard-10.0s",30.0 per video
+"Google veo 3.1, Extend, Quality",250 per video
+"Google veo 3.1, Extend, Fast",60 per video
+"Google veo 3.1, Get 1080P Video",5 per video
+"Google veo 3.1, Get 4K Video",120.0 per video
+"Google veo 3.1, reference-to-video, Fast",60.0 per video
+"Google veo 3.1, text-to-video, Quality",250.0 per video
+"Google veo 3.1, image-to-video, Fast",60.0 per video
+"Google veo 3.1, image-to-video, Quality",250.0 per video
+"Google veo 3.1, text-to-video, Fast",60.0 per video
+"Open AI sora 2 pro, image-to-video, Pro High-10.0s",330.0 per video
+"Open AI sora 2 pro, image-to-video, Pro High-15.0s",630.0 per video
+"Open AI sora 2 pro, text-to-video, Pro High-15.0s",630.0 per video
+"Open AI sora 2 pro, image-to-video, Pro Standard-10.0s",150.0 per video
+"Open AI sora 2 pro, image-to-video, Pro Standard-15.0s",270.0 per video
+"Open AI sora 2 pro, text-to-video, Pro Standard-15.0s",270.0 per video
+"Open AI sora 2 pro, text-to-video, Pro High-10.0s",330.0 per video
+"Open AI sora 2 pro, storyboard, Pro-10.0s",150.0 per video
+"Open AI sora 2 pro, storyboard, Pro-15-25s",270.0 per video
+"Open AI sora 2 pro, text-to-video, Pro Standard-10.0s",150.0 per video
+"kling 2.5 turbo, text-to-video, Turbo Pro-10.0s",84.0 per video
+"kling 2.5 turbo, image-to-video, Turbo Pro-5.0s",42.0 per video
+"kling 2.5 turbo, image-to-video, Turbo Pro-10.0s",84.0 per video
+"kling 2.5 turbo, text-to-video, Turbo Pro-5.0s",42.0 per video
+"wan 2.5, text-to-video, default-10.0s-720p",120.0 per video
+"wan 2.5, text-to-video, default-5.0s-1080p",100.0 per video
+"wan 2.5, text-to-video, default-10.0s-1080p",200.0 per video
+"wan 2.5, image-to-video, default-10.0s-1080p",200.0 per video
+"wan 2.5, text-to-video, default-5.0s-720p",60.0 per video
+"wan 2.5, image-to-video, default-10.0s-720p",120.0 per video
+"wan 2.5, image-to-video, default-5.0s-1080p",100.0 per video
+"wan 2.5, image-to-video, default-5.0s-720p",60.0 per video
+"wan 2.2 Animate, 2.2 Animate Replace, 1.0s-720p",12.5 per generation
+"wan 2.2 Animate, 2.2 Animate Replace, 1.0s-580p",9.5 per generation
+"wan 2.2 Animate, 2.2 Animate Replace, 1.0s-480p",6 per generation
+"wan 2.2 Animate, 2.2 Animate Move, 1.0s-480p",6.0 per generation
+"wan 2.2 Animate, 2.2 Animate Move, 1.0s-580p",9.5 per generation
+"wan 2.2 Animate, 2.2 Animate Move, 1.0s-720p",12.5 per generation
+"wan 2.2, image-to-video, 5.0s-480p",40 per video
+"wan 2.2, image-to-video, 5.0s-720p",80.0 per video
+"wan 2.2, image-to-video, 5.0s-580p",60.0 per video
+"wan 2.2, text-to-video, 5.0s-580p",60.0 per video
+"wan 2.2, text-to-video, 5.0s-480p",40.0 per video
+"wan 2.2, text-to-video, 5.0s-720p",80.0 per video
+"kling 2.6 motion control, video to video, 1080P",9 per second
+"kling 2.6 motion control, video-to-video, 720P",6 per second

@@ -19,6 +19,7 @@ import { AuthenticatedRequest, JwtAuthGuard } from '../auth/guards/jwt-auth.guar
 import { WorkspaceAccessGuard } from '../auth/guards/workspace-access.guard';
 import { WorkflowQueueService } from './workflow-queue.service';
 import { ExecuteWorkflowDto } from './dto/execute-workflow.dto';
+import { ExecuteCharacterWorkflowDto } from './dto/execute-character-workflow.dto';
 import { WorkflowsService } from './workflows.service';
 
 @Controller('api/v1/workflows')
@@ -37,6 +38,16 @@ export class WorkflowsController {
     @Req() request: AuthenticatedRequest
   ) {
     return await this.workflowsService.execute(payload, idempotencyKey, request.user?.id);
+  }
+
+  @Post('execute-character')
+  @HttpCode(202)
+  async executeCharacter(
+    @Body() payload: ExecuteCharacterWorkflowDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() request: AuthenticatedRequest
+  ) {
+    return await this.workflowsService.executeCharacter(payload, idempotencyKey, request.user?.id);
   }
 
   @Get('jobs/:jobId')

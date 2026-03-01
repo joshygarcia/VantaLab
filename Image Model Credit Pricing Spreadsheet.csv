@@ -17,3 +17,6 @@ Model & Modality,Credit Cost
 "Midjourney, text-to-image, turbo",16.0 per request
 "Midjourney, image-to-image, relaxed",3.0 per request
 "Midjourney, text-to-image, relaxed",3.0 per request
+"Google nano banana 2, 4K",	18 per image
+"Google nano banana 2, 2K",	12 per image
+"Google nano banana 2, 1K",	8 per image

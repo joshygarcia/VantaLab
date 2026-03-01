@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { createCustomSpace, deleteCustomSpace, listCustomSpaces, updateCustomSpace, CustomSpaceItem } from '@/lib/api';
-import { Plus, X, Server, Layers, Globe, Lock, Share2, Unlock } from 'lucide-react';
+import { Plus, X, Layers, Globe, Lock, Share2, Unlock } from 'lucide-react';
+import { useProjectContext } from '@/components/projects/project-context';
 
 type SpaceProtection = CustomSpaceItem['protection'];
 
@@ -68,7 +69,8 @@ const inputClass =
   'h-10 w-full rounded-lg border border-white/10 bg-ink-900 px-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-zinc-300 focus:ring-2 focus:ring-zinc-300/20';
 
 export default function SpacesPage() {
-  const [ownerWorkspaceId, setOwnerWorkspaceId] = useState('local');
+  const { activeSpace } = useProjectContext();
+  const ownerWorkspaceId = activeSpace?.id ?? 'local';
   const [customSpaces, setCustomSpaces] = useState<CustomSpaceItem[]>([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -297,19 +299,6 @@ export default function SpacesPage() {
         </div>
 
         <div className="mt-4 md:mt-0 flex flex-col items-end gap-3">
-          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 shadow-sm">
-            <Server className="w-4 h-4 text-zinc-400" />
-            <label htmlFor="spaces-owner-id" className="text-[10px] uppercase text-zinc-500 font-semibold tracking-wider">
-              Workspace
-            </label>
-            <input
-              id="spaces-owner-id"
-              value={ownerWorkspaceId}
-              onChange={(event) => setOwnerWorkspaceId(event.target.value || 'local')}
-              placeholder="local"
-              className="w-20 bg-transparent text-sm text-zinc-200 outline-none focus:text-white"
-            />
-          </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => loadCustomSpaces(ownerWorkspaceId)}

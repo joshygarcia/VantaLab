@@ -13,6 +13,7 @@ type WorkflowJobUpdate = {
   id: string;
   status: 'processing' | 'succeeded' | 'failed';
   mediaUrl?: string | null;
+  resultUrls?: string[];
   error?: string | null;
 };
 
@@ -30,6 +31,10 @@ type StoredKlingElement = {
 
 type StoredWorkflowParameters = {
   prompt?: string;
+  characterName?: string;
+  customPrompt?: string;
+  selections?: Record<string, string>;
+  generatedMediaUrls?: string[];
   referenceImageUrl?: string;
   aspectRatio?: string;
   resolution?: string;
@@ -41,6 +46,35 @@ type StoredWorkflowParameters = {
   multiShots?: boolean;
   multiPrompt?: StoredMultiPromptShot[];
   klingElements?: StoredKlingElement[];
+};
+
+type KieTaskDetailsResponse = {
+  code?: number;
+  msg?: string;
+  data?: {
+    state?: string;
+    resultJson?: string;
+    failMsg?: string;
+  };
+};
+
+type GeminiPromptSet = {
+  profilePicturePrompt: string;
+  fullBodyPrompt: string;
+  characterSheetPrompt: string;
+};
+
+type GeminiCompletionResponse = {
+  code?: number;
+  msg?: string;
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
 };
 
 type KieUploadResponse = {
@@ -97,23 +131,185 @@ export class WorkflowQueueService {
   }
 
   private async pollUnifiedTask(taskId: string, apiKey: string): Promise<string> {
+    const urls = await this.pollUnifiedTaskUrls(taskId, apiKey);
+    return urls[0] ?? '';
+  }
+
+  private async pollUnifiedTaskUrls(taskId: string, apiKey: string): Promise<string[]> {
     const url = `https://api.kie.ai/api/v1/jobs/recordInfo?taskId=${taskId}`;
     for (let attempt = 0; attempt < 120; attempt++) {
       const res = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
       if (!res.ok) throw new Error(`Unified polling failed: ${res.status} - ${await res.text()}`);
-      const result = await res.json();
+      const result = (await res.json()) as KieTaskDetailsResponse;
       if (result.code === 200) {
-        const state = result.data.state;
+        const state = result.data?.state;
         if (state === 'success') {
-          const results = JSON.parse(result.data.resultJson || '{}');
-          return results.resultUrls?.[0] || '';
+          const parsedResult = this.safeJsonParse<{ resultUrls?: unknown }>(result.data?.resultJson ?? '{}');
+          const resultUrls = Array.isArray(parsedResult.resultUrls)
+            ? parsedResult.resultUrls
+              .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+            : [];
+
+          if (resultUrls.length > 0) {
+            return resultUrls;
+          }
+
+          throw new Error('Task completed without media URLs');
         } else if (state === 'fail') {
-          throw new Error(result.data.failMsg || 'Kie task generation failed');
+          throw new Error(result.data?.failMsg || result.msg || 'Kie task generation failed');
         }
       }
       await delay(5000);
     }
     throw new Error('Unified task polling timed out');
+  }
+
+  private safeJsonParse<T>(raw: string): T {
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      throw new Error('Unable to parse API response payload');
+    }
+  }
+
+  private async createUnifiedTask(requestBody: Record<string, unknown>, apiKey: string): Promise<string> {
+    const response = await fetch('https://api.kie.ai/api/v1/jobs/createTask', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`Kie.ai Jobs API error: ${response.status} - ${errBody}`);
+    }
+
+    const data = (await response.json()) as { code?: number; msg?: string; data?: { taskId?: string } };
+    if (data.code !== 200 || !data.data?.taskId) {
+      throw new Error(`Jobs API error: ${data.msg || 'task id missing'}`);
+    }
+
+    return data.data.taskId;
+  }
+
+  private async generateCharacterPromptsWithGemini(params: StoredWorkflowParameters, apiKey: string): Promise<GeminiPromptSet> {
+    const payload = {
+      characterName: (params.characterName ?? '').trim() || 'Untitled character',
+      customPrompt: (params.customPrompt ?? '').trim(),
+      selections: params.selections ?? {},
+      objective: 'Create three related prompts for profile picture, full body image, and character sheet while preserving visual identity consistency.'
+    };
+
+    const response = await fetch('https://api.kie.ai/gemini-3-pro/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        stream: false,
+        include_thoughts: false,
+        reasoning_effort: 'low',
+        response_format: {
+          type: 'json_object'
+        },
+        messages: [
+          {
+            role: 'developer',
+            content: [
+              {
+                type: 'text',
+                text: 'You are an expert image prompt engineer. Return valid JSON only. Generate three concise prompts (max 120 words each) for one consistent character identity: profile picture portrait, full body shot, and character sheet turnaround. Mention visual consistency markers (face shape, eyes, hairstyle, outfit motifs, color palette) in all three prompts. Keep prompts safe and production-ready.'
+              }
+            ]
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(payload)
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini 3 Pro prompt generation failed: ${response.status} - ${errorText}`);
+    }
+
+    const data = (await response.json()) as GeminiCompletionResponse;
+    if (typeof data.code === 'number' && data.code !== 200) {
+      throw new Error(data.msg || 'Gemini 3 Pro request was rejected');
+    }
+
+    const content = data.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error(data.error?.message || 'Gemini 3 Pro returned empty prompt content');
+    }
+
+    const normalizedContent = content.startsWith('```')
+      ? content.replace(/^```[a-zA-Z0-9]*\s*/, '').replace(/```$/, '').trim()
+      : content;
+
+    const parsed = this.safeJsonParse<Partial<GeminiPromptSet>>(normalizedContent);
+    const profilePicturePrompt = typeof parsed.profilePicturePrompt === 'string' ? parsed.profilePicturePrompt.trim() : '';
+    const fullBodyPrompt = typeof parsed.fullBodyPrompt === 'string' ? parsed.fullBodyPrompt.trim() : '';
+    const characterSheetPrompt = typeof parsed.characterSheetPrompt === 'string' ? parsed.characterSheetPrompt.trim() : '';
+
+    if (!profilePicturePrompt || !fullBodyPrompt || !characterSheetPrompt) {
+      throw new Error('Gemini 3 Pro returned incomplete prompt set');
+    }
+
+    return {
+      profilePicturePrompt,
+      fullBodyPrompt,
+      characterSheetPrompt
+    };
+  }
+
+  private async generateSeedreamTextToImage(prompt: string, apiKey: string, aspectRatio: string): Promise<string> {
+    const taskId = await this.createUnifiedTask(
+      {
+        model: 'seedream/5-lite-text-to-image',
+        input: {
+          prompt,
+          aspect_ratio: aspectRatio,
+          quality: 'high'
+        }
+      },
+      apiKey
+    );
+
+    return this.pollUnifiedTask(taskId, apiKey);
+  }
+
+  private async generateSeedreamImageToImage(
+    prompt: string,
+    references: string[],
+    apiKey: string,
+    aspectRatio: string
+  ): Promise<string> {
+    const taskId = await this.createUnifiedTask(
+      {
+        model: 'seedream/5-lite-image-to-image',
+        input: {
+          prompt,
+          image_urls: references,
+          aspect_ratio: aspectRatio,
+          quality: 'high'
+        }
+      },
+      apiKey
+    );
+
+    return this.pollUnifiedTask(taskId, apiKey);
   }
 
   private async uploadReferenceImage(base64Data: string, apiKey: string): Promise<string> {
@@ -188,9 +384,35 @@ export class WorkflowQueueService {
       }
 
       let taskId = '';
+      let generatedMediaUrls: string[] | null = null;
 
-      // Check if it's Veo 3.1
-      if (existing.model === 'veo-3.1' || existing.model === 'veo3_fast' || existing.model === 'veo3') {
+      if (existing.model === 'character-suite') {
+        const promptSet = await this.generateCharacterPromptsWithGemini(params, apiKey);
+        await this.apiKeysService.logUsage(apiKeyRecord.id, 'gemini-3-pro/v1/chat/completions', 0, 200);
+
+        const profilePictureUrl = await this.generateSeedreamTextToImage(
+          promptSet.profilePicturePrompt,
+          apiKey,
+          '1:1'
+        );
+        const fullBodyUrl = await this.generateSeedreamImageToImage(
+          promptSet.fullBodyPrompt,
+          [profilePictureUrl],
+          apiKey,
+          '9:16'
+        );
+        const characterSheetUrl = await this.generateSeedreamImageToImage(
+          promptSet.characterSheetPrompt,
+          [profilePictureUrl, fullBodyUrl],
+          apiKey,
+          '16:9'
+        );
+
+        mediaUrl = profilePictureUrl;
+        generatedMediaUrls = [profilePictureUrl, fullBodyUrl, characterSheetUrl];
+        await this.apiKeysService.logUsage(apiKeyRecord.id, 'jobs/createTask/seedream/5-lite-suite', 0, 200);
+
+      } else if (existing.model === 'veo-3.1' || existing.model === 'veo3_fast' || existing.model === 'veo3') {
         const veoInput: Record<string, unknown> = {
           model: 'veo3_fast', // Using fast for dev iterating speed
           prompt: promptText,
@@ -359,24 +581,7 @@ export class WorkflowQueueService {
           }
         }
 
-        const response = await fetch('https://api.kie.ai/api/v1/jobs/createTask', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify(requestBody)
-        });
-
-        if (!response.ok) {
-          const errBody = await response.text();
-          throw new Error(`Kie.ai Jobs API error: ${response.status} - ${errBody}`);
-        }
-
-        const data = await response.json();
-        if (data.code !== 200) throw new Error(`Jobs API error: ${data.msg}`);
-
-        taskId = data.data.taskId;
+        taskId = await this.createUnifiedTask(requestBody, apiKey);
         mediaUrl = await this.pollUnifiedTask(taskId, apiKey);
 
         // Log Usage (Mock cost logic based on model)
@@ -401,6 +606,12 @@ export class WorkflowQueueService {
         data: {
           status: 'succeeded',
           mediaUrl,
+          parameters: generatedMediaUrls
+            ? JSON.stringify({
+              ...params,
+              generatedMediaUrls
+            })
+            : existing.parameters,
           error: null
         }
       });
@@ -408,6 +619,7 @@ export class WorkflowQueueService {
         id: payload.workflowJobId,
         status: 'succeeded',
         mediaUrl,
+        resultUrls: generatedMediaUrls ?? undefined,
         error: null
       });
     } catch (error) {

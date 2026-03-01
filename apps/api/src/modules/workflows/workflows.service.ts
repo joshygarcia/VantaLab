@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, UnauthorizedExcepti
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { ExecuteWorkflowDto } from './dto/execute-workflow.dto';
+import { ExecuteCharacterWorkflowDto } from './dto/execute-character-workflow.dto';
 import { WorkflowQueueService } from './workflow-queue.service';
 import { calculateWorkflowCreditCost } from './workflow-credit-cost';
 import { Prisma } from '@prisma/client';
@@ -67,8 +68,53 @@ export class WorkflowsService {
     };
   }
 
+  async executeCharacter(payload: ExecuteCharacterWorkflowDto, idempotencyKey: string | undefined, userId: string | undefined) {
+    if (!userId) {
+      throw new UnauthorizedException('Missing authenticated user id');
+    }
+
+    const workflowPayload: ExecuteWorkflowDto = {
+      workspaceId: payload.workspaceId,
+      nodeId: payload.nodeId,
+      model: 'character-suite',
+      parameters: {
+        prompt: payload.customPrompt?.trim() || payload.characterName?.trim() || 'character-generation-request',
+        characterName: payload.characterName,
+        customPrompt: payload.customPrompt,
+        selections: payload.selections as Record<string, string>,
+        aspectRatio: payload.aspectRatio ?? '9:16',
+        resolution: payload.resolution ?? '2K',
+        amount: 3
+      }
+    };
+
+    return this.execute(workflowPayload, idempotencyKey, userId);
+  }
+
   async getJob(jobId: string) {
-    return this.prisma.workflowJob.findUnique({ where: { id: jobId } });
+    const job = await this.prisma.workflowJob.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return null;
+    }
+
+    let resultUrls: string[] | undefined;
+    if (job.parameters) {
+      try {
+        const parsed = JSON.parse(job.parameters) as { generatedMediaUrls?: unknown };
+        if (Array.isArray(parsed.generatedMediaUrls)) {
+          resultUrls = parsed.generatedMediaUrls
+            .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+            .slice(0, 4);
+        }
+      } catch {
+        resultUrls = undefined;
+      }
+    }
+
+    return {
+      ...job,
+      resultUrls
+    };
   }
 
   async getUserGenerationHistory(userId: string, filters: GenerationHistoryFilters) {
