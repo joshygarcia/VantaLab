@@ -60,6 +60,7 @@ export type GenerationHistoryItem = {
   model: string;
   prompt: string;
   mediaUrl: string;
+  mediaUrls?: string[];
   createdAt: string;
   expiresAt: string;
 };
@@ -101,16 +102,38 @@ type ExecuteRequest = {
   };
 };
 
+type ExecuteCharacterRequest = {
+  workspaceId: string;
+  nodeId: string;
+  characterName?: string;
+  imageModel?: 'seedream-5' | 'nano-banana-2' | 'nano-banana-pro';
+  selections: {
+    gender?: string;
+    ethnicity?: string;
+    eyeColor?: string;
+    skinCondition?: string;
+    ageRange?: string;
+    hairStyle?: string;
+    bodyType?: string;
+    renderStyle?: string;
+  };
+  customPrompt?: string;
+  aspectRatio?: string;
+  resolution?: string;
+};
+
 type ExecuteResponse = {
   status: string;
   jobId: string;
   message: string;
+  estimatedCreditCost?: number;
 };
 
 type JobResponse = {
   id: string;
   status: 'queued' | 'processing' | 'succeeded' | 'failed';
   mediaUrl?: string;
+  resultUrls?: string[];
   error?: string;
 };
 
@@ -409,6 +432,39 @@ export async function executeWorkflow(payload: ExecuteRequest): Promise<ExecuteR
     }
 
     throw new Error('Failed to queue workflow');
+  }
+
+  return response.json();
+}
+
+export async function executeCharacterWorkflow(payload: ExecuteCharacterRequest): Promise<ExecuteResponse> {
+  const accessToken = await getAccessToken(payload.workspaceId);
+  const response = await fetch(`${API_BASE}/workflows/execute-character`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'idempotency-key': crypto.randomUUID(),
+      authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    try {
+      const errorPayload = (await response.json()) as { message?: string | string[] };
+      if (Array.isArray(errorPayload.message) && errorPayload.message.length > 0) {
+        throw new Error(errorPayload.message[0]);
+      }
+      if (typeof errorPayload.message === 'string' && errorPayload.message.trim().length > 0) {
+        throw new Error(errorPayload.message);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.trim().length > 0) {
+        throw error;
+      }
+    }
+
+    throw new Error('Failed to queue character workflow');
   }
 
   return response.json();

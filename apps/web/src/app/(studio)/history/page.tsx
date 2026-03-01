@@ -283,15 +283,19 @@ export default function HistoryPage() {
               <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
                 {groupItems.map((item) => {
                   const daysRemaining = getDaysRemaining(item.expiresAt);
-                  const video = isVideoUrl(item.mediaUrl);
+                  const mediaUrls = Array.isArray(item.mediaUrls) && item.mediaUrls.length > 0
+                    ? item.mediaUrls
+                    : [item.mediaUrl];
+                  const primaryMediaUrl = mediaUrls[0];
+                  const video = isVideoUrl(primaryMediaUrl);
 
                   return (
                     <article key={item.id} className="overflow-hidden rounded-xl border border-white/10 bg-ink-900/70">
                       <div className="aspect-video w-full overflow-hidden bg-black/40">
                         {video ? (
-                          <video src={item.mediaUrl} controls preload="metadata" className="h-full w-full object-cover" />
+                          <video src={primaryMediaUrl} controls preload="metadata" className="h-full w-full object-cover" />
                         ) : (
-                          <img src={item.mediaUrl} alt="Generated media" className="h-full w-full object-cover" loading="lazy" />
+                          <img src={primaryMediaUrl} alt="Generated media" className="h-full w-full object-cover" loading="lazy" />
                         )}
                       </div>
 
@@ -306,6 +310,31 @@ export default function HistoryPage() {
 
                         <p className="line-clamp-3 text-xs leading-relaxed text-zinc-300">{item.prompt}</p>
 
+                        {mediaUrls.length > 1 ? (
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {mediaUrls.map((url, index) => {
+                              const thumbIsVideo = isVideoUrl(url);
+
+                              return (
+                                <a
+                                  key={`${item.id}_${index}`}
+                                  href={url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="overflow-hidden rounded-md border border-white/10 transition hover:border-white/30"
+                                  title={`Open media ${index + 1}`}
+                                >
+                                  {thumbIsVideo ? (
+                                    <video src={url} preload="metadata" className="h-16 w-full object-cover" />
+                                  ) : (
+                                    <img src={url} alt={`Generated media ${index + 1}`} className="h-16 w-full object-cover" loading="lazy" />
+                                  )}
+                                </a>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+
                         <div className="text-[10px] text-zinc-500">
                           <p>Generated: {formatDateTime(item.createdAt)}</p>
                           <p>Expires: {formatDateTime(item.expiresAt)}</p>
@@ -313,12 +342,12 @@ export default function HistoryPage() {
                         </div>
 
                         <a
-                          href={item.mediaUrl}
+                          href={primaryMediaUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex h-8 items-center rounded-lg border border-white/10 px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10"
                         >
-                          Open media
+                          Open primary media
                         </a>
                       </div>
                     </article>

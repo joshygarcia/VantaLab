@@ -124,6 +124,7 @@ Required Google Secret Manager secrets consumed by Cloud Run deploy:
 - `DEV_JWT_SECRET`
 - `DEV_SUPABASE_URL`
 - `DEV_SUPABASE_ANON_KEY`
+- `DEV_SUPABASE_SERVICE_ROLE_KEY`
 - `DEV_REDIS_URL`
 - `DEV_STRIPE_SECRET_KEY`
 - `DEV_STRIPE_WEBHOOK_SECRET`

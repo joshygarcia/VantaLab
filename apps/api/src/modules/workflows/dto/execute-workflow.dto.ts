@@ -86,6 +86,23 @@ class WorkflowParametersDto {
 
   @IsString()
   @IsOptional()
+  characterName?: string;
+
+  @IsString()
+  @IsOptional()
+  customPrompt?: string;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['seedream-5', 'nano-banana-2', 'nano-banana-pro'])
+  characterImageModel?: string;
+
+  @IsObject()
+  @IsOptional()
+  selections?: Record<string, string>;
+
+  @IsString()
+  @IsOptional()
   referenceImageUrl?: string;
 
   @IsString()
@@ -148,7 +165,7 @@ export class ExecuteWorkflowDto {
   nodeId!: string;
 
   @IsString()
-  @IsIn(['veo-3.1', 'nano-banana', 'nano-banana-pro', 'z-image', 'kling-3.0/video'])
+  @IsIn(['veo-3.1', 'nano-banana', 'nano-banana-pro', 'z-image', 'kling-3.0/video', 'character-suite'])
   model!: string;
 
   @IsObject()

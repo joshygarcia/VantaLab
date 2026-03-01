@@ -1,0 +1,11 @@
+Model & Modality,Credit Cost
+"gpt-5-2, Chat, Input",87.5 per million tokens
+"gpt-5-2, Chat, Output",700 per million tokens
+"Gemini 3 Flash, Chat, Input",30 per million tokens
+"Gemini 3 Flash, Chat, Output",180 per million tokens
+"Gemini 3 Pro, Chat, Input",100 per million tokens
+"Gemini 3 Pro, Chat, Output",700 per million tokens
+"Gemini 2.5 flash, Chat, Input",18 per million tokens
+"Gemini 2.5 flash, Chat, Output",150 per million tokens
+"Gemini 2.5 Pro, Chat, Input",76 per million tokens
+"Gemini 2.5 Pro, Chat, Output",600 per million tokens

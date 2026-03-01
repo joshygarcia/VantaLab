@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, UnauthorizedExcepti
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { ExecuteWorkflowDto } from './dto/execute-workflow.dto';
+import { ExecuteCharacterWorkflowDto } from './dto/execute-character-workflow.dto';
 import { WorkflowQueueService } from './workflow-queue.service';
 import { calculateWorkflowCreditCost } from './workflow-credit-cost';
 import { Prisma } from '@prisma/client';
@@ -67,8 +68,54 @@ export class WorkflowsService {
     };
   }
 
+  async executeCharacter(payload: ExecuteCharacterWorkflowDto, idempotencyKey: string | undefined, userId: string | undefined) {
+    if (!userId) {
+      throw new UnauthorizedException('Missing authenticated user id');
+    }
+
+    const workflowPayload: ExecuteWorkflowDto = {
+      workspaceId: payload.workspaceId,
+      nodeId: payload.nodeId,
+      model: 'character-suite',
+      parameters: {
+        prompt: payload.customPrompt?.trim() || payload.characterName?.trim() || 'character-generation-request',
+        characterName: payload.characterName,
+        customPrompt: payload.customPrompt,
+        characterImageModel: payload.imageModel ?? 'seedream-5',
+        selections: payload.selections as Record<string, string>,
+        aspectRatio: payload.aspectRatio ?? '9:16',
+        resolution: payload.resolution ?? '2K',
+        amount: 3
+      }
+    };
+
+    return this.execute(workflowPayload, idempotencyKey, userId);
+  }
+
   async getJob(jobId: string) {
-    return this.prisma.workflowJob.findUnique({ where: { id: jobId } });
+    const job = await this.prisma.workflowJob.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return null;
+    }
+
+    let resultUrls: string[] | undefined;
+    if (job.parameters) {
+      try {
+        const parsed = JSON.parse(job.parameters) as { generatedMediaUrls?: unknown };
+        if (Array.isArray(parsed.generatedMediaUrls)) {
+          resultUrls = parsed.generatedMediaUrls
+            .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+            .slice(0, 4);
+        }
+      } catch {
+        resultUrls = undefined;
+      }
+    }
+
+    return {
+      ...job,
+      resultUrls
+    };
   }
 
   async getUserGenerationHistory(userId: string, filters: GenerationHistoryFilters) {
@@ -117,21 +164,27 @@ export class WorkflowsService {
         model: true,
         prompt: true,
         mediaUrl: true,
+        parameters: true,
         createdAt: true
       }
     });
 
     return {
       retentionDays: this.historyRetentionDays,
-      items: jobs.map((job) => ({
-        id: job.id,
-        workspaceId: job.workspaceId,
-        model: job.model,
-        prompt: job.prompt,
-        mediaUrl: job.mediaUrl,
-        createdAt: job.createdAt.toISOString(),
-        expiresAt: new Date(job.createdAt.getTime() + this.historyRetentionDays * 24 * 60 * 60 * 1000).toISOString()
-      }))
+      items: jobs.map((job) => {
+        const generatedMediaUrls = this.extractGeneratedMediaUrls(job.parameters, job.mediaUrl);
+
+        return {
+          id: job.id,
+          workspaceId: job.workspaceId,
+          model: job.model,
+          prompt: job.prompt,
+          mediaUrl: job.mediaUrl,
+          mediaUrls: generatedMediaUrls,
+          createdAt: job.createdAt.toISOString(),
+          expiresAt: new Date(job.createdAt.getTime() + this.historyRetentionDays * 24 * 60 * 60 * 1000).toISOString()
+        };
+      })
     };
   }
 
@@ -186,6 +239,27 @@ export class WorkflowsService {
     } catch {
       return {};
     }
+  }
+
+  private extractGeneratedMediaUrls(rawParameters: string | null, primaryMediaUrl: string | null): string[] {
+    const parsedParameters = this.safeParseParameters(rawParameters);
+    const rawGenerated = (parsedParameters as { generatedMediaUrls?: unknown }).generatedMediaUrls;
+
+    const generated = Array.isArray(rawGenerated)
+      ? rawGenerated.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      : [];
+
+    const normalizedPrimary = typeof primaryMediaUrl === 'string' ? primaryMediaUrl.trim() : '';
+
+    if (generated.length > 0) {
+      return generated;
+    }
+
+    if (normalizedPrimary.length > 0) {
+      return [normalizedPrimary];
+    }
+
+    return [];
   }
 
   private async createJobWithCreditGuard(input: {

@@ -8,7 +8,8 @@ import {
   updateKlingElementsLibrary,
   uploadElementLibraryImage
 } from '@/lib/api';
-import { AlertTriangle, Plus, Save, Search, Server, Settings2, Tag, Trash2, Upload } from 'lucide-react';
+import { AlertTriangle, Plus, Save, Search, Settings2, Tag, Trash2, Upload } from 'lucide-react';
+import { useProjectContext } from '@/components/projects/project-context';
 
 type DraftImageSlot = {
   url: string;
@@ -102,7 +103,8 @@ const buildItemId = (name: string) => {
 const isValidImageFile = (file: File) => file.type.startsWith('image/');
 
 export default function ElementLibraryPage() {
-  const [workspaceId, setWorkspaceId] = useState('local');
+  const { activeSpace } = useProjectContext();
+  const workspaceId = activeSpace?.id ?? 'local';
   const [items, setItems] = useState<ElementLibraryItem[]>([]);
   const [legacyItems, setLegacyItems] = useState<LegacyElementLibraryItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -466,19 +468,6 @@ export default function ElementLibraryPage() {
         </div>
 
         <div className="mt-4 md:mt-0 flex flex-col items-end gap-3">
-          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 shadow-sm">
-            <Server className="w-4 h-4 text-zinc-400" />
-            <label htmlFor="library-workspace-id" className="text-[10px] uppercase text-zinc-500 font-semibold tracking-wider">
-              Workspace
-            </label>
-            <input
-              id="library-workspace-id"
-              value={workspaceId}
-              onChange={(event) => setWorkspaceId(event.target.value || 'local')}
-              placeholder="local"
-              className="w-20 bg-transparent text-sm text-zinc-200 outline-none focus:text-white"
-            />
-          </div>
           <button
             onClick={() => void loadLibrary(workspaceId)}
             disabled={loading}
