@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsNotEmpty, IsObject, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsIn, IsNotEmpty, IsObject, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 class CharacterSelectionsDto {
   @IsString()
@@ -47,6 +47,11 @@ export class ExecuteCharacterWorkflowDto {
   @IsString()
   @IsOptional()
   characterName?: string;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['seedream-5', 'nano-banana-2', 'nano-banana-pro'])
+  imageModel?: string;
 
   @IsObject()
   @ValidateNested()

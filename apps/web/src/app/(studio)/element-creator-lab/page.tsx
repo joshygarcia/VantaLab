@@ -27,6 +27,8 @@ type GeneratedMedia = {
   url: string;
 };
 
+type CharacterImageModel = 'seedream-5' | 'nano-banana-2' | 'nano-banana-pro';
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const makeLibraryItemId = (name: string) => {
@@ -39,7 +41,24 @@ const makeLibraryItemId = (name: string) => {
 };
 
 const normalizeTag = (rawTag: string) => rawTag.trim().toLowerCase().replace(/\s+/g, '-').slice(0, 24);
-const CHARACTER_GENERATION_ESTIMATED_CREDITS = 18;
+
+const CHARACTER_IMAGE_MODEL_OPTIONS: Array<{ value: CharacterImageModel; label: string }> = [
+  { value: 'seedream-5', label: 'Seedream 5' },
+  { value: 'nano-banana-2', label: 'Nano Banana 2' },
+  { value: 'nano-banana-pro', label: 'Nano Banana Pro' }
+];
+
+const estimateCharacterCredits = (imageModel: CharacterImageModel): number => {
+  if (imageModel === 'nano-banana-2') {
+    return 37;
+  }
+
+  if (imageModel === 'nano-banana-pro') {
+    return 55;
+  }
+
+  return 18;
+};
 
 const buildElementTags = (builderState: BuilderState): string[] => {
   const next = new Set<string>();
@@ -229,6 +248,7 @@ export default function ElementCreatorLabPage() {
   const { activeSpace } = useProjectContext();
   const workspaceId = activeSpace?.id ?? 'local';
   const [elementName, setElementName] = useState('');
+  const [imageModel, setImageModel] = useState<CharacterImageModel>('seedream-5');
   const [builder, setBuilder] = useState<BuilderState>(DEFAULT_BUILDER_STATE);
   const [customPrompt, setCustomPrompt] = useState('');
   const [latestMedia, setLatestMedia] = useState<GeneratedMedia | null>(null);
@@ -392,6 +412,7 @@ export default function ElementCreatorLabPage() {
         workspaceId,
         nodeId,
         characterName: elementName.trim() || undefined,
+        imageModel,
         selections: {
           gender: builder.gender || undefined,
           ethnicity: builder.ethnicity || undefined,
@@ -407,7 +428,7 @@ export default function ElementCreatorLabPage() {
         resolution: '2K'
       });
 
-      const estimatedCost = executeResult.estimatedCreditCost ?? CHARACTER_GENERATION_ESTIMATED_CREDITS;
+      const estimatedCost = executeResult.estimatedCreditCost ?? estimateCharacterCredits(imageModel);
       setStatus(`Generating character image... Estimated cost: ${estimatedCost} credits`);
       const mediaResult = await waitForJobMedia(executeResult.jobId, workspaceId);
 
@@ -550,11 +571,24 @@ export default function ElementCreatorLabPage() {
                   placeholder="e.g. Luna Rivera"
                 />
               </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] uppercase font-semibold text-zinc-500 tracking-wider">Image Model</label>
+                <select
+                  className="h-[38px] min-w-[170px] rounded-lg border border-white/10 bg-ink-900/70 px-3 text-sm font-semibold text-zinc-300 outline-none focus:border-zinc-500"
+                  value={imageModel}
+                  onChange={(event) => setImageModel(event.target.value as CharacterImageModel)}
+                >
+                  {CHARACTER_IMAGE_MODEL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
               <span className="hidden text-[10px] font-semibold uppercase tracking-widest text-zinc-500 sm:inline">
-                Est. {CHARACTER_GENERATION_ESTIMATED_CREDITS} credits
+                Est. {estimateCharacterCredits(imageModel)} credits
               </span>
               <button
                 type="button"

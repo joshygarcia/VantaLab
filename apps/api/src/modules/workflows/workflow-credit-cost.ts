@@ -1,6 +1,7 @@
 type WorkflowParameters = {
   aspectRatio?: string;
   amount?: number;
+  characterImageModel?: 'seedream-5' | 'nano-banana-2' | 'nano-banana-pro' | string;
   duration?: string;
   mode?: 'std' | 'pro' | string;
   resolution?: string;
@@ -29,7 +30,22 @@ const VEO_31_FAST_COST = 60;
 const VEO_31_QUALITY_COST = 250;
 const KLING_TURBO_COST_PER_SECOND = 8.4; // 42 / 5 and 84 / 10
 const CHARACTER_PROMPTING_COST = 1;
-const CHARACTER_IMAGE_SET_COST = 5.5 * 3;
+
+const CHARACTER_IMAGE_MODEL_COST_PER_IMAGE: Record<'seedream-5' | 'nano-banana-2' | 'nano-banana-pro', (resolution?: string) => number> = {
+  'seedream-5': () => 5.5,
+  'nano-banana-2': (resolution) => {
+    if (resolution === '4K') {
+      return 18;
+    }
+
+    if (resolution === '1K') {
+      return 8;
+    }
+
+    return 12;
+  },
+  'nano-banana-pro': (resolution) => (resolution === '4K' ? 24 : 18)
+};
 
 const MIN_DURATION_SECONDS = 3;
 const MAX_DURATION_SECONDS = 15;
@@ -62,7 +78,15 @@ export function calculateWorkflowCreditCost(model: string, parameters: WorkflowP
   }
 
   if (model === 'character-suite') {
-    return finalizeCredits(CHARACTER_PROMPTING_COST + CHARACTER_IMAGE_SET_COST);
+    const normalizedAmount = normalizeAmount(parameters.amount ?? 3);
+    const selectedCharacterImageModel = parameters.characterImageModel;
+
+    const characterImageModel = selectedCharacterImageModel === 'nano-banana-2' || selectedCharacterImageModel === 'nano-banana-pro'
+      ? selectedCharacterImageModel
+      : 'seedream-5';
+
+    const perImageCost = CHARACTER_IMAGE_MODEL_COST_PER_IMAGE[characterImageModel](parameters.resolution);
+    return finalizeCredits(CHARACTER_PROMPTING_COST + (perImageCost * normalizedAmount));
   }
 
   if (model === 'veo-3.1') {

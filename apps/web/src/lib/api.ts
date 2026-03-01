@@ -60,6 +60,7 @@ export type GenerationHistoryItem = {
   model: string;
   prompt: string;
   mediaUrl: string;
+  mediaUrls?: string[];
   createdAt: string;
   expiresAt: string;
 };
@@ -105,6 +106,7 @@ type ExecuteCharacterRequest = {
   workspaceId: string;
   nodeId: string;
   characterName?: string;
+  imageModel?: 'seedream-5' | 'nano-banana-2' | 'nano-banana-pro';
   selections: {
     gender?: string;
     ethnicity?: string;

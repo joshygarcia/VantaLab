@@ -92,6 +92,11 @@ class WorkflowParametersDto {
   @IsOptional()
   customPrompt?: string;
 
+  @IsString()
+  @IsOptional()
+  @IsIn(['seedream-5', 'nano-banana-2', 'nano-banana-pro'])
+  characterImageModel?: string;
+
   @IsObject()
   @IsOptional()
   selections?: Record<string, string>;
