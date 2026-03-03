@@ -6,7 +6,7 @@ This runbook has been executed against:
 
 - Project: `persona-prod-488212`
 - API: `https://persona-api-cahsiez3nq-ue.a.run.app`
-- Web: `https://persona-web-kohl.vercel.app`
+- Web: `https://www.vanta-lab.com`
 
 ## Completed checks
 

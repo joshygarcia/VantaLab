@@ -83,6 +83,6 @@ Last updated: 2026-02-22
 |---|---|---|---|
 | High | todo | You | Attach notification channels (email/PagerDuty/Slack) to Cloud Monitoring alert policies. |
 | High | todo | You | Run MCP host "list servers" and confirm Google Cloud Run MCP server is connected. |
-| Medium | todo | You | Verify billing UI row visually after hard refresh on `https://persona-web-kohl.vercel.app/billing`. |
+| Medium | todo | You | Verify billing UI row visually after hard refresh on `https://www.vanta-lab.com/billing`. |
 | Medium | todo | You | If launching in live mode, run one true live Stripe low-value purchase and reconcile. |
 | Medium | todo | You | Enable Supabase RLS for billing tables and keep service-role-only access policies. |
