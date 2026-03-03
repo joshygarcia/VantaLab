@@ -1,8 +1,8 @@
-# Persona Engine - Master Technical Specification (v1)
+# Vanta Lab - Master Technical Specification (v1)
 
 ## 1. Executive Summary
 
-Persona Engine is a scalable AI influencer creation platform with an infinite canvas workspace for real-time, collaborative media workflows. The product enables creators to define reusable influencer identities and run node-based generation pipelines while preserving strict visual consistency across outputs.
+Vanta Lab is a scalable AI influencer creation platform with an infinite canvas workspace for real-time, collaborative media workflows. The product enables creators to define reusable influencer identities and run node-based generation pipelines while preserving strict visual consistency across outputs.
 
 The platform orchestrates external generation providers through a backend-controlled job system so the browser stays responsive during long-running tasks. v1 is optimized for an internal creator team and designed for a clean path to multi-tenant SaaS.
 
@@ -37,7 +37,7 @@ The platform orchestrates external generation providers through a backend-contro
 
 ## 3. System Architecture and Data Flow
 
-Persona Engine uses an event-driven asynchronous pipeline to separate interactive UI behavior from model execution latency.
+Vanta Lab uses an event-driven asynchronous pipeline to separate interactive UI behavior from model execution latency.
 
 1. Client updates canvas state locally and syncs node coordinates/properties to Firestore.
 2. User executes a workflow node from the canvas.
@@ -62,7 +62,7 @@ Persona Engine uses an event-driven asynchronous pipeline to separate interactiv
 ## 4. Comprehensive File Architecture
 
 ```text
-persona-engine-monorepo/
+vanta-lab-monorepo/
 ├── apps/
 │   ├── web/                          # Next.js frontend
 │   │   ├── src/

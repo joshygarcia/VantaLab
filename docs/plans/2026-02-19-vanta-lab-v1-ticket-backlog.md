@@ -1,4 +1,4 @@
-# Persona Engine v1 - Sprint-Ready Ticket Backlog
+# Vanta Lab v1 - Sprint-Ready Ticket Backlog
 
 ## Sprint Plan
 
@@ -479,4 +479,4 @@ Use this field mapping for Jira/Linear import:
 - `Priority` -> P0/P1/P2
 - `Story Points` -> Estimate
 - `Parent` -> Epic ID (for stories/tasks)
-- `Labels` -> `persona-engine`, `v1`, `sprint-N`, `backend|frontend|platform|ops`
+- `Labels` -> `vanta-lab`, `v1`, `sprint-N`, `backend|frontend|platform|ops`

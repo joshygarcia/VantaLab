@@ -821,7 +821,7 @@ export class WorkflowQueueService {
         },
         body: JSON.stringify({
           base64Data,
-          uploadPath: `persona/reference/${Date.now()}`
+          uploadPath: `vanta-lab/reference/${Date.now()}`
         })
       }
     );

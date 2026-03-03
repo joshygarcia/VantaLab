@@ -103,10 +103,11 @@ export default function SaaSLandingPage() {
 
             {/* A) Minimalist Header */}
             <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-6 md:px-12 backdrop-blur-md bg-[#050505]/60 border-b border-white/5">
-                <div className="flex items-center gap-4">
-                    <span className="font-display text-xl font-bold tracking-tight text-[#FAF8F5]">vestige</span>
+                <div className="flex items-center gap-3">
+                    <img src="/branding/vl_monogram.svg" alt="Vanta Lab" className="h-5 w-5 invert" />
+                    <span className="font-display text-xl font-bold tracking-tight text-[#FAF8F5]">Vanta Lab</span>
                     <div className="h-4 w-px bg-white/10 hidden md:block"></div>
-                    <span className="text-xs font-mono text-white/40 hidden md:block uppercase tracking-widest">Persona Engine</span>
+                    <span className="text-xs font-mono text-white/40 hidden md:block uppercase tracking-widest">Vanta Lab</span>
                 </div>
 
                 <div className="flex items-center gap-6">
@@ -615,8 +616,9 @@ export default function SaaSLandingPage() {
             {/* E) Minimalist Footer */}
             <footer className="border-t border-white/5 bg-[#030303]">
                 <div className="max-w-[1400px] mx-auto px-6 md:px-12 lg:px-24 py-12 flex flex-col md:flex-row items-center justify-between gap-6">
-                    <div className="flex items-center gap-4">
-                        <span className="font-display text-xl font-bold tracking-tight text-[#FAF8F5]">vestige</span>
+                    <div className="flex items-center gap-3">
+                        <img src="/branding/vl_monogram.svg" alt="Vanta Lab" className="h-5 w-5 invert" />
+                        <span className="font-display text-xl font-bold tracking-tight text-[#FAF8F5]">Vanta Lab</span>
                         <span className="text-xs text-white/40">&copy; {new Date().getFullYear()}</span>
                     </div>
 

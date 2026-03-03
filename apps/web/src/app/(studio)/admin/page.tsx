@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/server';
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
 export const metadata = {
-  title: 'Admin Dashboard - Persona Engine'
+  title: 'Admin Dashboard - Vanta Lab'
 };
 
 async function hasDeveloperAccess() {
@@ -61,9 +61,9 @@ export default async function AdminDashboardPage() {
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 font-bold text-white shadow-lg shadow-indigo-500/20">
-              PE
+              VL
             </div>
-            <span className="font-semibold tracking-tight text-white">Persona Engine</span>
+            <span className="font-semibold tracking-tight text-white">Vanta Lab</span>
             <span className="ml-2 rounded-full bg-indigo-500/10 px-2 py-0.5 text-xs font-medium text-indigo-400">
               Admin
             </span>

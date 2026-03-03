@@ -188,7 +188,7 @@ export class WorkspacesService {
                 },
                 body: JSON.stringify({
                     base64Data,
-                    uploadPath: `persona/${Date.now()}`,
+                    uploadPath: `vanta-lab/${Date.now()}`,
                     fileName
                 })
             }
