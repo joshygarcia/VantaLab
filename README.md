@@ -4,7 +4,7 @@ TL;DR stack: Next.js 15 + React 19, NestJS 10 + Prisma/PostgreSQL, Supabase Auth
 
 I built Vanta Lab to help creators generate image/video content from reusable node-based workflows, with built-in credit billing and production-grade deployment.
 
-- Live app: `https://vanta-lab.com`
+- Live app: `https://www.vanta-lab.com`
 
 ## What I Built (1-Minute Overview)
 

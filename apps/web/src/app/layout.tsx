@@ -17,9 +17,9 @@ const cormorantGaramond = Cormorant_Garamond({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://vanta-lab.com'),
+  metadataBase: new URL('https://www.vanta-lab.com'),
   title: 'Vanta Lab — AI Content Studio',
-  description: 'Create stunning influencer content with AI-powered image and video generation.',
+  description: 'Create stunning content with AI-powered image and video generation.',
   icons: {
     icon: '/favicon.png',
     shortcut: '/favicon.png',
