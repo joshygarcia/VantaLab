@@ -11,7 +11,7 @@ export default function HomePage() {
         <div className="flex flex-col items-center text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-300">
             <span className="h-1.5 w-1.5 rounded-full bg-zinc-300" />
-            Persona Engine
+            Vanta Lab
           </span>
 
           <h1 className="mt-8 font-display text-4xl leading-[1.1] text-zinc-50 md:text-5xl lg:text-6xl max-w-4xl">

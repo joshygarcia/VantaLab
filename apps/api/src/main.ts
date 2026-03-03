@@ -46,7 +46,7 @@ async function bootstrap() {
 
   const port = Number(process.env.PORT ?? 4000);
   await app.listen(port);
-  console.log(`Persona API listening on http://localhost:${port}`);
+  console.log(`Vanta Lab API listening on http://localhost:${port}`);
 }
 
 bootstrap();

@@ -17,8 +17,14 @@ const cormorantGaramond = Cormorant_Garamond({
 });
 
 export const metadata: Metadata = {
-  title: 'Persona Engine — AI Content Studio',
-  description: 'Create stunning influencer content with AI-powered image and video generation.'
+  metadataBase: new URL('https://vanta-lab.com'),
+  title: 'Vanta Lab — AI Content Studio',
+  description: 'Create stunning influencer content with AI-powered image and video generation.',
+  icons: {
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
+    apple: '/favicon.png'
+  }
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

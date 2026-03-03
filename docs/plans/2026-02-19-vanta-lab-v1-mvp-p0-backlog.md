@@ -1,4 +1,4 @@
-# Persona Engine v1 - MVP Only (P0) Backlog
+# Vanta Lab v1 - MVP Only (P0) Backlog
 
 This backlog includes launch-critical tickets only.
 

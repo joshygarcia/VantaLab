@@ -1,8 +1,8 @@
-# Persona Engine Application Documentation
+# Vanta Lab Application Documentation
 
 ## 1. Overview
 
-Persona Engine is a full-stack AI content studio for building and running image/video generation workflows.
+Vanta Lab is a full-stack AI content studio for building and running image/video generation workflows.
 
 The application combines:
 

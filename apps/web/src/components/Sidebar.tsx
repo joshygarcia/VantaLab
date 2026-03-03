@@ -187,11 +187,11 @@ export default function Sidebar() {
         <div className="min-w-0">
           {!isCollapsed ? (
             <span className="flex flex-col">
-              <span className="font-display text-[22px] leading-[0.9] tracking-[0.01em] text-slate-100">Persona Engine</span>
+              <span className="font-display text-[22px] leading-[0.9] tracking-[0.01em] text-slate-100">Vanta Lab</span>
               <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Studio Console</span>
             </span>
           ) : (
-            <span className="font-display text-[22px] text-slate-100">P</span>
+            <span className="font-display text-[22px] text-slate-100">V</span>
           )}
         </div>
 

@@ -84,7 +84,7 @@ function CheckoutForm({ packageInfo, clientSecret, onSuccess }: { packageInfo: P
                             defaultCollapsed: false,
                         },
                         business: {
-                            name: 'Persona Engine',
+                            name: 'Vanta Lab',
                         },
                     }}
                 />

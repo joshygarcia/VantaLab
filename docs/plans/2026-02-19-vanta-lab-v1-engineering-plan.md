@@ -1,8 +1,8 @@
-# Persona Engine v1 - Engineering Plan
+# Vanta Lab v1 - Engineering Plan
 
 ## Objective
 
-Deliver a production-ready v1 of Persona Engine for internal creators with reliable async media generation, identity consistency tooling, and a scalable SaaS-ready architecture.
+Deliver a production-ready v1 of Vanta Lab for internal creators with reliable async media generation, identity consistency tooling, and a scalable SaaS-ready architecture.
 
 ## Scope
 

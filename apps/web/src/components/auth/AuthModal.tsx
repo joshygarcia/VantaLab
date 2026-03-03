@@ -64,8 +64,8 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     </button>
 
                     {/* Header */}
-                    <div className="text-center mb-8">
-                        <span className="font-display text-2xl font-bold tracking-tight text-[#FAF8F5]">vestige</span>
+                    <div className="text-center mb-8 flex flex-col items-center">
+                        <img src="/branding/vanta-lab.svg" alt="Vanta Lab" className="h-6 w-auto invert" />
                         <p className="mt-3 text-sm text-white/50">Sign in to access your creative studio</p>
                     </div>
 
