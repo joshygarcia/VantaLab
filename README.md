@@ -1,11 +1,11 @@
-# Persona Engine - Production AI Workflow SaaS
+# Vanta Lab - Production AI Workflow SaaS
 
 TL;DR stack: Next.js 15 + React 19, NestJS 10 + Prisma/PostgreSQL, Supabase Auth/Realtime, Stripe Billing, Google Cloud Run, Vercel, GitHub Actions.
 
-I built Persona Engine to help creators generate image/video content from reusable node-based workflows, with built-in credit billing and production-grade deployment.
+I built Vanta Lab to help creators generate image/video content from reusable node-based workflows, with built-in credit billing and production-grade deployment.
 
-- Live app: `https://persona-web-kohl.vercel.app`
-- API health: `https://persona-api-cahsiez3nq-ue.a.run.app/api/v1/health`
+- Live app: `https://vanta-lab.com`
+- API health: `https://api.vanta-lab.com/api/v1/health`
 
 ## What I Built (1-Minute Overview)
 
@@ -18,7 +18,7 @@ I built Persona Engine to help creators generate image/video content from reusab
 ## Impact
 
 - Problem: creators often manage prompting, generation, and assets across disconnected tools.
-- Solution: Persona Engine unifies that workflow into one studio with reusable creative building blocks and built-in billing.
+- Solution: Vanta Lab unifies that workflow into one studio with reusable creative building blocks and built-in billing.
 - Technical complexity: the product combines workspace-scoped auth, async job processing, realtime sync, and idempotent payment settlement across split deployments.
 
 ## Product Capabilities
@@ -34,9 +34,9 @@ I built Persona Engine to help creators generate image/video content from reusab
 
 Captured from the live deployment:
 
-![Persona Engine Pricing Section](docs/persona-pricing.png)
+![Vanta Lab Pricing Section](docs/vanta-lab-pricing.png)
 
-![Persona Engine Preview GIF](docs/persona-preview.gif)
+![Vanta Lab Preview GIF](docs/vanta-lab-preview.gif)
 
 ## Architecture Snapshot
 
