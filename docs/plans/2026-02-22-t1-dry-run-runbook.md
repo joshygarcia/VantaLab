@@ -44,9 +44,9 @@ Current state:
 
 Policy definitions are tracked in:
 
-- `docs/plans/monitoring/persona-api-5xx-alert.json`
-- `docs/plans/monitoring/persona-billing-webhook-errors-alert.json`
-- `docs/plans/monitoring/persona-billing-processing-errors-alert.json`
+- `docs/plans/monitoring/vanta-lab-api-5xx-alert.json`
+- `docs/plans/monitoring/vanta-lab-billing-webhook-errors-alert.json`
+- `docs/plans/monitoring/vanta-lab-billing-processing-errors-alert.json`
 
 ## Remaining manual operator check
 
