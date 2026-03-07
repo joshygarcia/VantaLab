@@ -19,22 +19,7 @@ import { FloatingToolbar } from './FloatingToolbar';
 import { AddNodeType } from './add-node-menu';
 import { NodeContextMenu } from './NodeContextMenu';
 import { PaneContextMenu } from './PaneContextMenu';
-import { WorkspaceSettingsModal } from './WorkspaceSettingsModal';
-import {
-  AlertTriangle,
-  ChevronDown,
-  CreditCard,
-  FolderOpen,
-  Languages,
-  LifeBuoy,
-  LogOut,
-  PanelLeftOpen,
-  Moon,
-  Settings,
-  Sparkles,
-  UserRound,
-  X
-} from 'lucide-react';
+import { AlertTriangle, X } from 'lucide-react';
 
 const nodeTypes = {
   main: MainNode,
@@ -948,15 +933,11 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const reactFlow = useReactFlow();
   const { projects, activeProject, activeSpace, setActiveBySpaceId } = useProjectContext();
   const [running, setRunning] = useState(false);
-  const [activeTool, setActiveTool] = useState<'select' | 'draw'>('select');
+  const [activeTool, setActiveTool] = useState<'select' | 'draw' | 'disconnect'>('select');
   const [focusMode, setFocusMode] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [history, setHistory] = useState<Array<{ nodes: Node<NodeData>[]; edges: Edge[] }>>([]);
   const [future, setFuture] = useState<Array<{ nodes: Node<NodeData>[]; edges: Edge[] }>>([]);
   const nodeCounterRef = useRef(1);
-  const userMenuRef = useRef<HTMLDivElement | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestSavedGraphRef = useRef<string>('');
   const viewportRef = useRef<{ x: number; y: number; zoom: number }>({ x: 0, y: 0, zoom: 1 });
@@ -1156,62 +1137,6 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     };
   }, [canvasReady, edges, nodes, serializeCanvas, viewportVersion, workspaceId]);
 
-  useEffect(() => {
-    const syncSidebarStateFromDom = () => {
-      const sidebarElement = document.querySelector('.sidebar');
-      const collapsedViaDom = sidebarElement?.classList.contains('collapsed') ?? false;
-      const collapsedViaBodyClass = document.body.classList.contains('sidebar-is-collapsed');
-      setIsSidebarCollapsed(collapsedViaDom || collapsedViaBodyClass);
-    };
-
-    const handleSidebarState = (event: Event) => {
-      const detail = (event as CustomEvent<{ collapsed?: boolean }>).detail;
-      if (typeof detail?.collapsed === 'boolean') {
-        setIsSidebarCollapsed(detail.collapsed);
-        return;
-      }
-
-      syncSidebarStateFromDom();
-    };
-
-    syncSidebarStateFromDom();
-    window.addEventListener('persona:sidebar-state', handleSidebarState);
-
-    return () => {
-      window.removeEventListener('persona:sidebar-state', handleSidebarState);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!userMenuOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (
-        userMenuRef.current &&
-        event.target instanceof globalThis.Node &&
-        !userMenuRef.current.contains(event.target)
-      ) {
-        setUserMenuOpen(false);
-      }
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setUserMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleEscape);
-
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [userMenuOpen]);
-
   const getPortType = (
     node: Node<NodeData> | undefined,
     handleId: string | null | undefined,
@@ -1347,7 +1272,6 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const closeContextMenus = () => {
     setNodeContextMenu(null);
     setPaneContextMenu(null);
-    setUserMenuOpen(false);
   };
 
   const cloneGraph = () => ({
@@ -2242,6 +2166,17 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     );
   };
 
+  const handleDisconnectEdge = useCallback((edgeId: string) => {
+    const nextEdges = edges.filter((edge) => edge.id !== edgeId);
+    if (nextEdges.length === edges.length) {
+      return;
+    }
+
+    rememberGraph();
+    setCanvas(nodes, nextEdges);
+    broadcastEdges(nextEdges);
+  }, [broadcastEdges, edges, nodes, rememberGraph, setCanvas]);
+
   const handleUndo = () => {
     setHistory((prevHistory) => {
       const previous = prevHistory[prevHistory.length - 1];
@@ -2763,10 +2698,8 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     };
   }, [handleDeleteNode]);
 
-  const userMenuItemClass = 'w-full rounded-lg border border-transparent px-2.5 py-2 text-left text-sm text-slate-200 transition hover:border-slate-700/70 hover:bg-slate-800/70';
-
   return (
-    <main className="flex h-full min-h-full flex-col">
+    <main className="flex h-full min-h-0 flex-col">
       <div className="run-form sr-only" aria-hidden="true">
         <button
           type="button"
@@ -2781,198 +2714,37 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         </button>
       </div>
 
-      <header className="flex min-h-[58px] items-center justify-between gap-3 border-b border-white/5 bg-ink-950 px-4 py-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-3 sm:flex-nowrap">
-          <div
-            className={`inline-flex items-center gap-3 overflow-hidden transition-all duration-300 ${isSidebarCollapsed
-              ? 'max-w-[280px] translate-x-0 opacity-100'
-              : 'pointer-events-none max-w-0 -translate-x-3 opacity-0'
-              }`}
-            aria-hidden={!isSidebarCollapsed}
-          >
-            <button
-              type="button"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-ink-900 text-zinc-400 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label="Expand sidebar"
-              disabled={!isSidebarCollapsed}
-              tabIndex={isSidebarCollapsed ? 0 : -1}
-              onClick={() => {
-                window.dispatchEvent(new Event('persona:toggle-sidebar'));
-              }}
-            >
-              <PanelLeftOpen size={16} />
-            </button>
-            <div className="text-sm font-black tracking-[0.08em] text-white sm:text-base" aria-label="Persona logo">
-              PERSONA ENGINE
-            </div>
-          </div>
-
-          <nav className="flex min-w-0 items-center gap-2 text-sm text-slate-300" aria-label="Workspace breadcrumbs">
-            <Link href="/projects" className="truncate transition hover:text-white">
-              {breadcrumbProjectLabel}
-            </Link>
-            <span className="text-slate-500">/</span>
-            <Link href="/spaces" className="truncate transition hover:text-white">
-              Spaces
-            </Link>
-            <span className="text-slate-500">/</span>
-            <span className="max-w-[220px] truncate font-semibold text-slate-100" title={breadcrumbWorkspaceLabel}>
-              {breadcrumbWorkspaceLabel}
-            </span>
-          </nav>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-ink-900 text-zinc-400 transition-colors duration-200 hover:bg-white/10 hover:text-white"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings size={20} />
-          </button>
-
-          <div className="relative" ref={userMenuRef}>
-            <button
-              type="button"
-              className={`inline-flex h-9 w-9 items-center justify-center rounded-full font-medium text-ink-950 transition-colors duration-200 ${userMenuOpen
-                ? 'bg-white ring-2 ring-white/20 ring-offset-2 ring-offset-black'
-                : 'bg-zinc-200 hover:bg-white'
-                }`}
-              aria-label="Open user menu"
-              aria-expanded={userMenuOpen}
-              aria-haspopup="menu"
-              onClick={() => setUserMenuOpen((open) => !open)}
-            >
-              U
-            </button>
-
-            {userMenuOpen ? (
-              <div
-                className="absolute right-0 top-[calc(100%+10px)] z-40 w-[320px] max-w-[92vw] overflow-hidden rounded-xl border border-white/10 bg-ink-950 shadow-panel"
-                role="menu"
-                aria-label="User settings menu"
-              >
-                <div className="flex items-center gap-3 p-4">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-zinc-200 font-medium text-ink-950">U</div>
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <strong className="truncate text-sm font-medium leading-none text-white">Persona User</strong>
-                    <span className="truncate text-xs text-zinc-400">creator@persona.local</span>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 px-4 pb-3">
-                  <button
-                    type="button"
-                    className="h-9 rounded-md bg-white text-sm font-medium text-ink-950 transition-colors duration-200 hover:bg-zinc-200"
-                  >
-                    Get a plan
-                  </button>
-                  <button
-                    type="button"
-                    className="h-9 rounded-md border border-white/10 bg-ink-900 text-sm font-medium text-white transition-colors duration-200 hover:bg-white/10"
-                  >
-                    Create your team
-                  </button>
-                </div>
-
-                <div className="border-t border-slate-800 p-2">
-                  <button type="button" className={userMenuItemClass}>
-                    <span className="inline-flex items-center gap-2.5">
-                      <CreditCard size={16} />
-                      <span>Plan &amp; billing</span>
-                    </span>
-                    <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs font-semibold text-slate-300">Free</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={userMenuItemClass}
-                    onClick={() => {
-                      setSettingsOpen(true);
-                      setUserMenuOpen(false);
-                    }}
-                  >
-                    <span className="inline-flex items-center gap-2.5">
-                      <Settings size={16} />
-                      <span>Settings</span>
-                    </span>
-                  </button>
-                  <button type="button" className={userMenuItemClass}>
-                    <span className="inline-flex items-center gap-2.5">
-                      <UserRound size={16} />
-                      <span>Creator profile</span>
-                    </span>
-                  </button>
-                  <button type="button" className={userMenuItemClass}>
-                    <span className="inline-flex items-center gap-2.5">
-                      <FolderOpen size={16} />
-                      <span>My collections</span>
-                    </span>
-                  </button>
-                  <button type="button" className={userMenuItemClass}>
-                    <span className="inline-flex items-center gap-2.5">
-                      <Languages size={16} />
-                      <span>Language</span>
-                    </span>
-                    <span className="inline-flex h-8 min-w-[108px] items-center justify-center gap-1 rounded-md border border-slate-700/70 bg-slate-900 px-2 text-xs text-slate-100">
-                      English <ChevronDown size={14} />
-                    </span>
-                  </button>
-                  <button type="button" className={userMenuItemClass}>
-                    <span className="inline-flex items-center gap-2.5">
-                      <Moon size={16} />
-                      <span>Theme</span>
-                    </span>
-                    <span className="inline-flex h-8 min-w-[108px] items-center justify-center gap-1 rounded-md border border-slate-700/70 bg-slate-900 px-2 text-xs text-slate-100">
-                      Dark <ChevronDown size={14} />
-                    </span>
-                  </button>
-                  <button type="button" className={userMenuItemClass}>
-                    <span className="inline-flex items-center gap-2.5">
-                      <Sparkles size={16} />
-                      <span>Use AI code</span>
-                    </span>
-                  </button>
-                  <button type="button" className={userMenuItemClass}>
-                    <span className="inline-flex items-center gap-2.5">
-                      <LifeBuoy size={16} />
-                      <span>Help center</span>
-                    </span>
-                  </button>
-                </div>
-
-                <div className="border-t border-slate-800 px-2 py-2.5">
-                  <button type="button" className={`${userMenuItemClass} text-slate-100`}>
-                    <span className="inline-flex items-center gap-2.5">
-                      <LogOut size={16} />
-                      <span>Log out</span>
-                    </span>
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </header>
-
-      <WorkspaceSettingsModal
-        workspaceId={workspaceId}
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
-
       {canvasError ? (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
           {canvasError}
         </div>
       ) : null}
 
-      <section className="flex min-h-0 flex-1 overflow-hidden bg-[#0f0f11]" onClick={closeContextMenus}>
+      <section className={`flex min-h-0 flex-1 overflow-hidden bg-studio-950 ${activeTool === 'disconnect' ? 'cursor-crosshair' : ''}`} onClick={closeContextMenus}>
+        <div className="pointer-events-none absolute left-4 top-4 z-40">
+          <nav
+            className="pointer-events-auto inline-flex max-w-[min(78vw,560px)] items-center gap-2 bg-transparent px-1 py-1 text-sm"
+            aria-label="Canvas breadcrumbs"
+          >
+            <Link href="/projects" className="truncate font-semibold text-zinc-200 transition hover:text-white">
+              {breadcrumbProjectLabel}
+            </Link>
+            <span className="text-zinc-500">/</span>
+            <Link href="/canvas" className="truncate font-semibold text-zinc-200 transition hover:text-white">
+              Canvas
+            </Link>
+            <span className="text-zinc-500">/</span>
+            <span className="truncate text-base font-bold text-white" title={breadcrumbWorkspaceLabel}>
+              {breadcrumbWorkspaceLabel}
+            </span>
+          </nav>
+        </div>
+
         <FloatingToolbar
           activeTool={activeTool}
           canUndo={history.length > 0}
           canRedo={future.length > 0}
           onAddNode={handleAddNode}
-          onCutSelection={handleCutSelection}
           onSetTool={setActiveTool}
           onUndo={handleUndo}
           onRedo={handleRedo}
@@ -3006,6 +2778,13 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           onNodeContextMenu={onNodeContextMenu}
           onPaneClick={onPaneClick}
           onPaneContextMenu={onPaneContextMenu}
+          onEdgeClick={(event, edge) => {
+            if (activeTool === 'disconnect') {
+              event.preventDefault();
+              event.stopPropagation();
+              handleDisconnectEdge(edge.id);
+            }
+          }}
           fitView
         >
           {nodeContextMenu && (

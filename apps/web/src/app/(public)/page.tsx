@@ -1031,7 +1031,7 @@ export default function LandingVariantThree() {
                         <h2 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-white/90"><Layers className="h-4 w-4 text-purple-300" /> Templates</h2>
                         <div className="space-y-2.5">
                             {templatesNodeSlots.map((slot) => (
-                                <Link key={`mobile-template-${slot.label}`} href="/spaces" className="block overflow-hidden rounded-2xl border border-[#2A2A35] bg-[#121218]">
+                                <Link key={`mobile-template-${slot.label}`} href="/canvas" className="block overflow-hidden rounded-2xl border border-[#2A2A35] bg-[#121218]">
                                     <img
                                         src={slot.imageSrc}
                                         alt={slot.label}
@@ -1742,7 +1742,7 @@ export default function LandingVariantThree() {
                         {templatesNodeSlots.map((slot) => (
                             <Link
                                 key={`templates-image-node-${slot.label}`}
-                                href="/spaces"
+                                href="/canvas"
                                 className="templates-image-node absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto"
                                 style={{ left: slot.x, top: slot.y }}
                             >
@@ -1765,7 +1765,7 @@ export default function LandingVariantThree() {
                             return (
                                 <Link
                                     key={`templates-title-node-${slot.label}`}
-                                    href="/spaces"
+                                    href="/canvas"
                                     className="templates-title-node templates-chip-node absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto"
                                     style={{ left: slot.titleX, top: slot.titleY }}
                                 >

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ElementLibraryItem,
   executeCharacterWorkflow,
@@ -10,6 +10,14 @@ import {
 } from '@/lib/api';
 import { useProjectContext } from '@/components/projects/project-context';
 import { Sparkles, RotateCcw, Plus, Image as ImageIcon, ChevronDown, ChevronUp, CheckCircle2, User, Users, Trash2 } from 'lucide-react';
+import { StudioPageShell } from '@/components/studio/StudioPageShell';
+import { STUDIO_PANEL_CLASS } from '@/components/studio/StudioSection';
+import {
+  studioInputClass,
+  studioPrimaryButtonClass,
+  studioSecondaryButtonClass,
+  studioTextareaClass
+} from '@/components/studio/StudioControls';
 
 type BuilderState = {
   gender: string;
@@ -183,24 +191,29 @@ function SelectField({ label, value, options, onChange }: SelectFieldProps) {
   const isIconic = label === 'Gender' || label === 'Age';
 
   return (
-    <div className="flex flex-col rounded-xl border border-white/5 bg-ink-900 overflow-hidden shadow-sm transition-all duration-300">
+    <div className="flex flex-col overflow-hidden rounded-xl border border-studio-700 bg-studio-950/80 shadow-sm transition-all duration-300 hover:border-studio-600">
       <button
         type="button"
-        className="flex items-center justify-between p-3"
+        className="flex items-center justify-between p-3 transition-colors duration-300 hover:bg-studio-900/70"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-zinc-300">{label}</span>
-          <span className="text-[10px] text-zinc-500 bg-white/5 px-1.5 py-0.5 rounded-full">{options.length}</span>
+          <span className="rounded-full bg-studio-900 px-1.5 py-0.5 text-[10px] text-zinc-500">{options.length}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-blue-400 font-medium truncate max-w-[120px]">{value}</span>
+          <span className="text-xs text-zinc-300 font-medium truncate max-w-[120px]">{value}</span>
           {expanded ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
         </div>
       </button>
 
-      {expanded && (
-        <div className={`p-3 pt-0 grid ${isIconic ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'} gap-2 bg-ink-900 border-t border-white/5 mt-2`}>
+      <div
+        className={`grid overflow-hidden bg-studio-950/80 transition-[max-height,opacity,margin,padding,border-color] duration-300 ease-out ${
+          expanded
+            ? 'mt-2 max-h-[720px] border-t border-studio-700 p-3 pt-0 opacity-100'
+            : 'mt-0 max-h-0 border-t border-transparent p-0 opacity-0 pointer-events-none'
+        } ${isIconic ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'} gap-2`}
+      >
           {options.map((opt) => {
             const isSelected = opt === value;
             const Icon = opt === 'Non binary' ? Users : User;
@@ -209,28 +222,28 @@ function SelectField({ label, value, options, onChange }: SelectFieldProps) {
                 key={opt}
                 type="button"
                 onClick={() => { onChange(opt); setExpanded(false); }}
-                className={`group relative flex flex-col ${isIconic ? 'aspect-[4/3]' : 'aspect-square'} rounded-xl overflow-hidden border-2 transition-all ${isSelected ? 'border-blue-400 shadow-[0_0_15px_rgba(96,165,250,0.25)]' : 'border-transparent hover:border-white/10'}`}
+                className={`group relative flex flex-col ${isIconic ? 'aspect-[4/3]' : 'aspect-square'} overflow-hidden rounded-xl border transition-all duration-300 hover:-translate-y-0.5 ${isSelected ? 'border-studio-gold/45 shadow-[0_0_0_1px_rgba(234,179,8,0.22)]' : 'border-studio-700 hover:border-studio-600 hover:shadow-[0_8px_20px_rgba(0,0,0,0.22)]'}`}
               >
                 {isIconic ? (
-                  <div className={`absolute inset-0 w-full h-full flex flex-col items-center justify-center bg-ink-950 transition-colors duration-300 group-hover:bg-ink-900`}>
-                    <Icon className={`w-6 h-6 mb-1 transition-colors ${isSelected ? 'text-blue-400' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
-                    <span className={`text-[10px] font-semibold tracking-wide text-center leading-tight px-2 transition-colors ${isSelected ? 'text-blue-400' : 'text-zinc-400 group-hover:text-zinc-200'}`}>
+                  <div className={`absolute inset-0 flex h-full w-full flex-col items-center justify-center bg-studio-900 transition-colors duration-300 group-hover:bg-studio-850`}>
+                    <Icon className={`mb-1 h-6 w-6 transition-colors ${isSelected ? 'text-studio-gold' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
+                    <span className={`px-2 text-center text-[10px] font-semibold leading-tight tracking-wide transition-colors ${isSelected ? 'text-zinc-100' : 'text-zinc-400 group-hover:text-zinc-200'}`}>
                       {opt}
                     </span>
                     {isSelected && (
-                      <div className="absolute top-1.5 right-1.5 w-3 h-3 bg-blue-400 rounded-full flex items-center justify-center shadow-lg">
-                        <CheckCircle2 className="w-2 h-2 text-black" strokeWidth={3} />
+                      <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-studio-gold shadow-lg">
+                        <CheckCircle2 className="h-2.5 w-2.5 text-ink-950" strokeWidth={3} />
                       </div>
                     )}
                   </div>
                 ) : (
                   <>
                     <img src={getImageUrl(opt)} alt={opt} className="absolute inset-0 w-full h-full object-cover transition duration-300 group-hover:scale-[1.03]" loading="lazy" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
                     <span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] sm:text-xs font-semibold text-white leading-tight text-left drop-shadow-md z-10">{opt}</span>
                     {isSelected && (
-                      <div className="absolute top-1.5 right-1.5 w-4 h-4 bg-blue-400 rounded-full flex items-center justify-center shadow-lg">
-                        <CheckCircle2 className="w-3 h-3 text-black" strokeWidth={3} />
+                      <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-studio-gold shadow-lg">
+                        <CheckCircle2 className="h-3 w-3 text-ink-950" strokeWidth={3} />
                       </div>
                     )}
                   </>
@@ -238,8 +251,7 @@ function SelectField({ label, value, options, onChange }: SelectFieldProps) {
               </button>
             );
           })}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -255,6 +267,7 @@ export default function ElementCreatorLabPage() {
   const [latestMediaUrls, setLatestMediaUrls] = useState<string[]>([]);
   const [status, setStatus] = useState('Configure character attributes, then generate.');
   const [libraryItemId, setLibraryItemId] = useState<string | null>(null);
+  const [activeSidebarTab, setActiveSidebarTab] = useState<'attributes' | 'library'>('attributes');
   const [generating, setGenerating] = useState(false);
   const [characterElements, setCharacterElements] = useState<ElementLibraryItem[]>([]);
   const [loadingCharacters, setLoadingCharacters] = useState(false);
@@ -483,99 +496,49 @@ export default function ElementCreatorLabPage() {
     }
   };
 
-  const panelClass = 'rounded-2xl border border-white/5 bg-ink-950/80 backdrop-blur-md shadow-lg';
+  const panelClass = STUDIO_PANEL_CLASS;
+  const selectedAttributeCount = useMemo(
+    () => Object.values(builder).filter((value) => value.trim().length > 0).length,
+    [builder]
+  );
+  const creditEstimate = estimateCharacterCredits(imageModel);
+  const generationState = useMemo(() => {
+    if (generating) {
+      return 'running' as const;
+    }
+
+    if (/failed|error|unable|timed out/i.test(status)) {
+      return 'error' as const;
+    }
+
+    if (latestMediaUrls.length > 0) {
+      return 'success' as const;
+    }
+
+    return 'idle' as const;
+  }, [generating, latestMediaUrls.length, status]);
 
   return (
-    <main className="min-h-full bg-[radial-gradient(circle_at_18%_16%,rgba(255,255,255,0.02),transparent_45%),linear-gradient(170deg,#000000_0%,#09090b_62%,#000000_100%)] p-4 text-zinc-100 h-screen overflow-hidden flex flex-col">
-      <div className="flex gap-4 min-h-0 flex-1">
-        <aside className={`${panelClass} w-[280px] flex-shrink-0 flex flex-col`}>
-          <div className="p-4 border-b border-white/5 shrink-0">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="flex h-6 items-center rounded-md border border-white/10 bg-white/5 px-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-400 shadow-sm">
-                Character Elements
-              </span>
-            </div>
-            <button
-              type="button"
-              className="w-full flex items-center justify-center gap-2 rounded-lg bg-zinc-100 px-3 py-2 text-xs font-semibold text-ink-950 transition hover:bg-white shadow-sm"
-              onClick={createNew}
-            >
-              <Plus className="w-3.5 h-3.5" /> New Character
-            </button>
-          </div>
+    <StudioPageShell className="pb-12">
+      <section className="relative grid gap-4 xl:h-[calc(100dvh-170px)] xl:grid-cols-[minmax(0,1fr)_360px] xl:items-stretch 2xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="pointer-events-none absolute inset-0 -z-10 rounded-2xl opacity-25 [background-image:linear-gradient(rgba(59,130,246,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.12)_1px,transparent_1px)] [background-size:32px_32px]" />
 
-          <div className="flex-1 overflow-y-auto p-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
-            {loadingCharacters ? (
-              <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-zinc-500">
-                Loading characters...
-              </div>
-            ) : characterElements.length === 0 ? (
-              <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-zinc-500">
-                No character elements yet
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {characterElements.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`w-full rounded-lg p-2 transition border ${libraryItemId === item.id
-                      ? 'border-white/10 bg-white/5 shadow-inner'
-                      : 'border-transparent hover:bg-white/5'
-                      }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => onSelectCharacter(item)}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="h-9 w-9 overflow-hidden rounded-md border border-white/10 bg-black/20">
-                            {item.imageUrls[0] ? (
-                              <img src={item.imageUrls[0]} alt="" className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="h-full w-full" />
-                            )}
-                          </div>
-                          <span className="block truncate text-[13px] font-semibold text-zinc-200 transition hover:text-white">{item.name}</span>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-transparent text-zinc-500 transition hover:border-red-300/50 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
-                        onClick={() => onDeleteCharacter(item.id)}
-                        title="Remove character"
-                        aria-label={`Remove ${item.name}`}
-                        disabled={removingCharacterId === item.id}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </aside>
-
-        <div className="flex-1 flex flex-col gap-4 min-w-0">
-          <header className={`${panelClass} p-4 shrink-0 flex flex-wrap items-end justify-between gap-4`}>
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] uppercase font-semibold text-zinc-500 tracking-wider">Character Name</label>
+        <div className="grid gap-4 opacity-0 animate-[modal-enter_420ms_ease_forwards] xl:h-full xl:grid-rows-[auto_minmax(0,1fr)]">
+          <section className={`${panelClass} p-4`}>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_240px_176px] md:items-end">
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Character Name</label>
                 <input
-                  className="w-56 rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 text-sm font-semibold text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+                  className={`${studioInputClass} w-full font-semibold`}
                   value={elementName}
                   onChange={(event) => setElementName(event.target.value)}
                   placeholder="e.g. Luna Rivera"
                 />
               </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] uppercase font-semibold text-zinc-500 tracking-wider">Image Model</label>
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Image Model</label>
                 <select
-                  className="h-[38px] min-w-[170px] rounded-lg border border-white/10 bg-ink-900/70 px-3 text-sm font-semibold text-zinc-300 outline-none focus:border-zinc-500"
+                  className={`${studioInputClass} w-full font-semibold text-zinc-300`}
                   value={imageModel}
                   onChange={(event) => setImageModel(event.target.value as CharacterImageModel)}
                 >
@@ -584,136 +547,238 @@ export default function ElementCreatorLabPage() {
                   ))}
                 </select>
               </div>
+              <div className="flex h-10 items-center justify-between rounded-lg border border-studio-gold/35 bg-studio-gold/10 px-3 shadow-[inset_0_0_0_1px_rgba(234,179,8,0.08)]">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-studio-gold/80">Estimated</p>
+                <p className="text-sm font-semibold text-studio-gold">{creditEstimate} credits</p>
+              </div>
+            </div>
+          </section>
+
+          <section className={`${panelClass} flex min-h-0 flex-col p-4`}>
+            <div className="relative flex h-[430px] min-h-[360px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-studio-700 bg-studio-950/85 shadow-inner sm:h-[520px] xl:h-[calc(100dvh-320px)] xl:min-h-[520px] xl:max-h-[680px]">
+              {latestMedia ? (
+                <img
+                  src={latestMedia.url}
+                  alt="Generated character"
+                  className="absolute inset-0 h-full w-full object-contain"
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-3 text-zinc-500">
+                  <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-studio-700 bg-studio-900/80">
+                    <ImageIcon className="h-6 w-6" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-semibold text-zinc-100">{elementName.trim() || 'Untitled Character'}</p>
+                    <p className="mt-1 text-lg text-zinc-500">Set attributes and generate to preview your character.</p>
+                  </div>
+                </div>
+              )}
+
+              {latestMediaUrls.length > 1 ? (
+                <div className="absolute bottom-3 right-3 flex items-end -space-x-3">
+                  {latestMediaUrls
+                    .filter((url) => url !== latestMedia?.url)
+                    .slice(0, 3)
+                    .map((url, index) => (
+                      <button
+                        key={`${url}_${index}`}
+                        type="button"
+                        onClick={() => setLatestMedia({ type: 'image', url })}
+                        className="relative h-14 w-12 overflow-hidden rounded-md border border-studio-600 bg-studio-900/90 shadow-lg transition hover:-translate-y-0.5 hover:border-studio-gold/40"
+                        title={`Show variant ${index + 1}`}
+                      >
+                        <img src={url} alt={`Variant ${index + 1}`} className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                </div>
+              ) : null}
+
+              {generationState === 'running' ? (
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-studio-950/72 backdrop-blur-sm">
+                  <div className="w-[82%] max-w-sm rounded-xl border border-studio-600 bg-studio-950/90 px-4 py-3 shadow-2xl">
+                    <div className="flex items-center gap-2">
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-300">
+                        <span className="absolute inset-0 animate-ping rounded-full bg-blue-300/70" />
+                      </span>
+                      <p className="text-sm font-medium text-zinc-100">Generating character previews...</p>
+                    </div>
+                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-studio-900">
+                      <div className="h-full w-2/3 animate-pulse rounded-full bg-blue-400" />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="hidden text-[10px] font-semibold uppercase tracking-widest text-zinc-500 sm:inline">
-                Est. {estimateCharacterCredits(imageModel)} credits
-              </span>
+          </section>
+        </div>
+
+        <aside
+          className={`${panelClass} flex min-h-[520px] flex-col overflow-hidden opacity-0 animate-[modal-enter_420ms_ease_forwards] transition-colors duration-300 hover:border-studio-600 xl:max-h-[calc(100dvh-170px)] xl:min-h-[640px]`}
+          style={{ animationDelay: '90ms' }}
+        >
+          <div className="grid grid-cols-2 border-b border-white/5 bg-studio-950/70">
+            <button
+              type="button"
+              className={`h-12 text-xs font-semibold uppercase tracking-[0.08em] transition ${activeSidebarTab === 'attributes'
+                ? 'border-b-2 border-blue-500 text-blue-300'
+                : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+              onClick={() => setActiveSidebarTab('attributes')}
+            >
+              Attributes
+            </button>
+            <button
+              type="button"
+              className={`h-12 text-xs font-semibold uppercase tracking-[0.08em] transition ${activeSidebarTab === 'library'
+                ? 'border-b-2 border-blue-500 text-blue-300'
+                : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+              onClick={() => setActiveSidebarTab('library')}
+            >
+              Library
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
+            {activeSidebarTab === 'attributes' ? (
+              <div className="flex flex-col gap-6">
+                <header>
+                  <h2 className="text-3xl font-semibold text-zinc-100">Attributes</h2>
+                  <p className="mt-1 text-sm text-zinc-500">Choose identity, face, body, and render style.</p>
+                </header>
+
+                <section className="space-y-3">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Identity</h3>
+                  <SelectField label="Gender" value={builder.gender} options={selectOptions.gender} onChange={(value) => updateBuilder('gender', value)} />
+                  <SelectField label="Ethnicity" value={builder.ethnicity} options={selectOptions.ethnicity} onChange={(value) => updateBuilder('ethnicity', value)} />
+                  <SelectField label="Age" value={builder.ageRange} options={selectOptions.ageRange} onChange={(value) => updateBuilder('ageRange', value)} />
+                </section>
+
+                <section className="space-y-3 border-t border-white/5 pt-4">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Face</h3>
+                  <SelectField label="Eye Color" value={builder.eyeColor} options={selectOptions.eyeColor} onChange={(value) => updateBuilder('eyeColor', value)} />
+                  <SelectField label="Hair Style" value={builder.hairStyle} options={selectOptions.hairStyle} onChange={(value) => updateBuilder('hairStyle', value)} />
+                  <SelectField label="Skin Conditions" value={builder.skinCondition} options={selectOptions.skinCondition} onChange={(value) => updateBuilder('skinCondition', value)} />
+                </section>
+
+                <section className="space-y-3 border-t border-white/5 pt-4">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Body & Style</h3>
+                  <SelectField label="Body Type" value={builder.bodyType} options={selectOptions.bodyType} onChange={(value) => updateBuilder('bodyType', value)} />
+                  <SelectField label="Render Style" value={builder.renderStyle} options={selectOptions.renderStyle} onChange={(value) => updateBuilder('renderStyle', value)} />
+                </section>
+
+                <section className="space-y-2 border-t border-white/5 pt-4">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Custom Prompt (optional)</label>
+                  <textarea
+                    className={`min-h-[130px] resize-none ${studioTextareaClass}`}
+                    value={customPrompt}
+                    onChange={(event) => setCustomPrompt(event.target.value)}
+                    placeholder="Optional: add your own creative direction to steer tone, styling, and framing"
+                  />
+                </section>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-zinc-100">Character Library</h2>
+                  <button
+                    type="button"
+                    className={`${studioPrimaryButtonClass} h-8 px-3 text-[11px]`}
+                    onClick={createNew}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> New
+                  </button>
+                </div>
+                <p className="text-xs text-zinc-500">Select an existing character to load it into the preview.</p>
+
+                {loadingCharacters ? (
+                  <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-zinc-500">
+                    Loading characters...
+                  </div>
+                ) : characterElements.length === 0 ? (
+                  <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-white/10 text-xs text-zinc-500">
+                    No character elements yet
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {characterElements.map((item) => (
+                      <article
+                        key={item.id}
+                        className={`group relative overflow-hidden rounded-xl border transition ${
+                          libraryItemId === item.id
+                            ? 'border-studio-gold/40'
+                            : 'border-studio-700 hover:border-studio-600'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className="relative h-24 w-full text-left"
+                          onClick={() => onSelectCharacter(item)}
+                        >
+                          {item.imageUrls[0] ? (
+                            <img src={item.imageUrls[0]} alt={item.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
+                          ) : (
+                            <div className="h-full w-full bg-ink-900" />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
+                          {item.imageUrls.length > 1 ? (
+                            <div className="pointer-events-none absolute right-2 top-2 flex -space-x-2">
+                              {item.imageUrls.slice(1, 4).map((url, idx) => (
+                                <span key={`${item.id}_stack_${idx}`} className="h-7 w-7 overflow-hidden rounded-md border border-studio-600 bg-studio-900/90">
+                                  <img src={url} alt="" className="h-full w-full object-cover" />
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <p className="absolute bottom-2 left-2 right-2 truncate text-xs font-semibold text-zinc-100">{item.name}</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-studio-700 bg-studio-900/90 text-zinc-300 transition hover:border-red-300/50 hover:bg-red-500/20 hover:text-red-200 disabled:opacity-50"
+                          onClick={() => onDeleteCharacter(item.id)}
+                          title="Remove character"
+                          aria-label={`Remove ${item.name}`}
+                          disabled={removingCharacterId === item.id}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-white/5 bg-studio-950/75 p-4">
+            <div className="mb-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+              <span>{selectedAttributeCount}/8 selected</span>
+              <span>{creditEstimate} credits</span>
+            </div>
+            <div className="grid grid-cols-[auto_1fr] gap-2">
               <button
                 type="button"
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/10 bg-transparent px-3 text-xs font-semibold text-zinc-300 transition hover:bg-white/5"
+                className={`${studioSecondaryButtonClass} h-11 px-3 text-xs`}
                 onClick={resetCurrentMode}
+                disabled={generating}
               >
-                <RotateCcw className="w-3.5 h-3.5" /> Reset
+                <RotateCcw className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-zinc-100 px-4 text-xs font-semibold text-ink-950 transition hover:bg-white shadow-sm disabled:opacity-50"
+                className={`${studioPrimaryButtonClass} h-11 text-base`}
                 onClick={onGenerateAndSave}
                 disabled={generating}
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                {generating ? 'Processing...' : 'Generate Character'}
+                <Sparkles className="h-4 w-4" />
+                {generating ? 'Processing...' : 'Generate'}
               </button>
             </div>
-          </header>
-
-          <div className="flex-1 grid grid-cols-[1fr_420px] gap-4 min-h-0">
-            <section className={`${panelClass} flex flex-col overflow-hidden`}>
-              <div className="flex-1 flex flex-col p-4 overflow-hidden relative">
-                <div className="absolute top-4 left-4 z-10 bg-ink-950/80 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-1.5 shadow-sm text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
-                  Live Preview
-                </div>
-                <div className="flex-1 rounded-xl border border-white/5 bg-[radial-gradient(circle_at_50%_15%,rgba(255,255,255,0.03),transparent_55%)] bg-ink-950/50 flex flex-col items-center justify-center overflow-hidden relative shadow-inner">
-                  {latestMedia ? (
-                    <div className="h-full w-full">
-                      <img src={latestMedia.url} alt="Generated character" className="h-full w-full object-contain" />
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-4 text-zinc-500">
-                      <div className="h-16 w-16 rounded-2xl border border-white/5 bg-white/5 flex items-center justify-center shadow-sm">
-                        <ImageIcon className="w-6 h-6 text-zinc-400" />
-                      </div>
-                      <div className="text-center">
-                        <p className="text-sm font-semibold text-zinc-300">{elementName.trim() || 'Untitled Character'}</p>
-                        <p className="text-xs mt-1 max-w-[220px]">Set attributes and generate to create a new character image.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {latestMediaUrls.length > 1 ? (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    {latestMediaUrls.map((url, index) => (
-                      <button
-                        type="button"
-                        key={`${url}_${index}`}
-                        className={`overflow-hidden rounded-lg border transition ${latestMedia?.url === url ? 'border-blue-400' : 'border-white/10 hover:border-white/30'}`}
-                        onClick={() => setLatestMedia({ type: 'image', url })}
-                      >
-                        <img src={url} alt={`Generated variant ${index + 1}`} className="h-20 w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="shrink-0 border-t border-white/5 p-4 bg-ink-950/30">
-                <span className="block text-[10px] font-semibold uppercase tracking-widest text-zinc-500 mb-1">Status</span>
-                <p className="text-xs text-zinc-300">{status}</p>
-              </div>
-            </section>
-
-            <aside className={`${panelClass} flex flex-col overflow-hidden`}>
-              <div className="flex-1 overflow-y-auto p-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
-                <div className="flex flex-col gap-6">
-                  <div className="flex flex-col gap-3">
-                    <SelectField
-                      label="Gender"
-                      value={builder.gender}
-                      options={selectOptions.gender}
-                      onChange={(value) => updateBuilder('gender', value)}
-                    />
-                    <SelectField
-                      label="Ethnicity"
-                      value={builder.ethnicity}
-                      options={selectOptions.ethnicity}
-                      onChange={(value) => updateBuilder('ethnicity', value)}
-                    />
-                    <SelectField
-                      label="Age"
-                      value={builder.ageRange}
-                      options={selectOptions.ageRange}
-                      onChange={(value) => updateBuilder('ageRange', value)}
-                    />
-                  </div>
-
-                  <div className="rounded-xl border border-white/5 bg-ink-900/30 p-4 shadow-inner">
-                    <div className="flex flex-col gap-5">
-                      <section className="space-y-3">
-                        <h3 className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Face</h3>
-                        <SelectField label="Eye Color" value={builder.eyeColor} options={selectOptions.eyeColor} onChange={(value) => updateBuilder('eyeColor', value)} />
-                        <SelectField label="Hair Style" value={builder.hairStyle} options={selectOptions.hairStyle} onChange={(value) => updateBuilder('hairStyle', value)} />
-                        <SelectField label="Skin Conditions" value={builder.skinCondition} options={selectOptions.skinCondition} onChange={(value) => updateBuilder('skinCondition', value)} />
-                      </section>
-
-                      <section className="space-y-3 border-t border-white/5 pt-4">
-                        <h3 className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Body</h3>
-                        <SelectField label="Body Type" value={builder.bodyType} options={selectOptions.bodyType} onChange={(value) => updateBuilder('bodyType', value)} />
-                      </section>
-
-                      <section className="space-y-3 border-t border-white/5 pt-4">
-                        <h3 className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Style</h3>
-                        <SelectField label="Render Style" value={builder.renderStyle} options={selectOptions.renderStyle} onChange={(value) => updateBuilder('renderStyle', value)} />
-                      </section>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">Custom Prompt (optional)</label>
-                    <textarea
-                      className="min-h-[120px] w-full resize-none rounded-xl border border-white/10 bg-ink-900 px-3 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400/50"
-                      value={customPrompt}
-                      onChange={(event) => setCustomPrompt(event.target.value)}
-                      placeholder="Optional: write your own direction; if provided it is used with/over selector options"
-                    />
-                  </div>
-                </div>
-              </div>
-            </aside>
           </div>
-        </div>
-      </div>
-    </main>
+        </aside>
+      </section>
+    </StudioPageShell>
   );
 }

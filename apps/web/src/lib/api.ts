@@ -385,6 +385,32 @@ async function tokenCanAccessWorkspace(token: string, workspaceId: string): Prom
   }
 }
 
+export async function getUserWorkspaceIds(): Promise<string[]> {
+  try {
+    const accessToken = await getUserAccessToken();
+    const response = await fetch(`${API_BASE}/auth/me`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = (await response.json()) as { workspaceIds?: unknown };
+    if (!Array.isArray(payload.workspaceIds)) {
+      return [];
+    }
+
+    return payload.workspaceIds.filter((entry): entry is string => typeof entry === 'string');
+  } catch {
+    return [];
+  }
+}
+
 async function getUserAccessToken(): Promise<string> {
   const supabase = createClient();
   const { data } = await supabase.auth.getSession();
