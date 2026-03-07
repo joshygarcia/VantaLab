@@ -4,6 +4,24 @@
 
 :root {
   color-scheme: dark;
+  --studio-bg: #0b0c10;
+  --studio-bg-soft: #15171e;
+  --studio-surface: #15171e;
+  --studio-surface-strong: #1f222c;
+  --studio-border: #2a2d3a;
+  --studio-border-strong: #3a3f4f;
+  --studio-text: #ffffff;
+  --studio-text-muted: #9ca3af;
+  --studio-accent: #3b82f6;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 @keyframes shimmer {

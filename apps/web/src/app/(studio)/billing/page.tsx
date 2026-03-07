@@ -16,6 +16,9 @@ import {
 import { CheckoutModal } from '@/components/billing/CheckoutModal';
 import { StripeProvider } from '@/components/billing/StripeProvider';
 import { BillingTransaction, getBillingBalance, listBillingTransactions } from '@/lib/api';
+import { StudioPageShell } from '@/components/studio/StudioPageShell';
+import { STUDIO_PANEL_CLASS, STUDIO_PANEL_MUTED_CLASS } from '@/components/studio/StudioSection';
+import { studioGhostButtonClass, studioKickerClass } from '@/components/studio/StudioControls';
 
 const CREDIT_PACKAGES = [
   {
@@ -27,7 +30,7 @@ const CREDIT_PACKAGES = [
     perCredit: '$0.010',
     badge: null,
     popular: false,
-    color: 'from-zinc-500/20 to-zinc-600/5',
+    color: 'from-zinc-400/12 to-zinc-600/0',
     paymentLink: ''
   },
   {
@@ -39,7 +42,7 @@ const CREDIT_PACKAGES = [
     perCredit: '$0.010',
     badge: null,
     popular: false,
-    color: 'from-indigo-500/20 to-indigo-600/5',
+    color: 'from-zinc-300/10 to-zinc-500/0',
     paymentLink: ''
   },
   {
@@ -51,7 +54,7 @@ const CREDIT_PACKAGES = [
     perCredit: 'Save 9%',
     badge: 'Best Value',
     popular: true,
-    color: 'from-emerald-500/20 to-emerald-600/5',
+    color: 'from-zinc-200/12 to-zinc-500/0',
     paymentLink: ''
   },
   {
@@ -63,7 +66,7 @@ const CREDIT_PACKAGES = [
     perCredit: 'Save 13%',
     badge: 'Studio Scale',
     popular: false,
-    color: 'from-amber-500/20 to-amber-600/5',
+    color: 'from-zinc-300/10 to-zinc-500/0',
     paymentLink: ''
   }
 ] as const;
@@ -83,6 +86,9 @@ type TransactionRow = {
   credits: number;
   balance: number;
 };
+
+const panelClass = STUDIO_PANEL_CLASS;
+const panelMutedClass = STUDIO_PANEL_MUTED_CLASS;
 
 export default function BillingPage() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -206,15 +212,19 @@ export default function BillingPage() {
   }, [loadBilling]);
 
   return (
-    <main className="relative flex min-h-full flex-col bg-[radial-gradient(circle_at_12%_8%,rgba(255,255,255,0.02),transparent_34%),linear-gradient(165deg,#000000_0%,#09090b_58%,#000000_100%)] p-6 md:p-8">
+    <StudioPageShell className="relative flex min-h-full flex-col">
       <div className="mx-auto flex w-full max-w-5xl flex-grow flex-col pt-8 lg:pt-12">
         <div className="mb-10">
-          <div className="mb-2 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5">
-              <Wallet className="h-5 w-5 text-zinc-300" />
+          <span className={studioKickerClass}>
+            <span className="h-1.5 w-1.5 rounded-full bg-studio-gold" />
+            Billing Control
+          </span>
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-studio-700 bg-studio-900/85">
+              <Wallet className="h-5 w-5 text-studio-cream" />
             </div>
             <div>
-              <h1 className="font-display text-2xl font-semibold text-zinc-50 md:text-3xl">Billing</h1>
+              <h1 className="text-3xl font-bold text-white">Billing</h1>
               <p className="text-sm text-zinc-500">Manage your credits and view transaction history</p>
             </div>
           </div>
@@ -227,8 +237,8 @@ export default function BillingPage() {
         ) : null}
 
         <div className="mb-10 grid gap-4 sm:grid-cols-3">
-          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-6 sm:col-span-1">
-            <div className="pointer-events-none absolute right-0 top-0 h-32 w-32 rounded-full bg-indigo-500/10 blur-3xl" />
+          <div className={`relative overflow-hidden p-6 sm:col-span-1 ${panelMutedClass}`}>
+            <div className="pointer-events-none absolute right-0 top-0 h-32 w-32 rounded-full bg-white/5 blur-3xl" />
             <div className="relative">
               <div className="mb-4 flex items-center gap-2">
                 <Wallet className="h-4 w-4 text-zinc-400" />
@@ -246,15 +256,15 @@ export default function BillingPage() {
                 </div>
               )}
               {isLowBalance ? (
-                <div className="mt-3 flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5">
-                  <Zap className="h-3 w-3 text-amber-400" />
-                  <span className="text-[11px] font-medium text-amber-400">Low balance - add credits soon</span>
+                <div className="mt-3 flex items-center gap-1.5 rounded-lg border border-studio-600/60 bg-studio-900/90 px-2.5 py-1.5">
+                  <Zap className="h-3 w-3 text-zinc-300" />
+                  <span className="text-[11px] font-medium text-zinc-300">Low balance - add credits soon</span>
                 </div>
               ) : null}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/5 bg-ink-950/80 p-6 backdrop-blur-md">
+          <div className={`${panelMutedClass} p-6`}>
             <div className="mb-4 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-zinc-400" />
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">This Month</span>
@@ -265,7 +275,7 @@ export default function BillingPage() {
             <p className="mt-2 text-xs text-zinc-500">Across {thisMonthTotals.purchaseCount} credit purchases</p>
           </div>
 
-          <div className="rounded-2xl border border-white/5 bg-ink-950/80 p-6 backdrop-blur-md">
+          <div className={`${panelMutedClass} p-6`}>
             <div className="mb-4 flex items-center gap-2">
               <Clock className="h-4 w-4 text-zinc-400" />
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Avg / Purchase</span>
@@ -290,18 +300,18 @@ export default function BillingPage() {
                 onClick={() => {
                   void handlePurchase(pkg);
                 }}
-                className={`group relative flex flex-col overflow-hidden rounded-2xl border p-5 text-left transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${pkg.popular
-                  ? 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/50 hover:bg-emerald-500/10'
-                  : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'}`}
+                className={`group relative flex flex-col overflow-hidden rounded-xl border p-5 text-left transition-colors duration-200 ${pkg.popular
+                  ? 'border-studio-600 bg-studio-800/85 hover:border-zinc-400 hover:bg-studio-800'
+                  : 'border-studio-700 bg-studio-900/85 hover:border-studio-600 hover:bg-studio-800/90'}`}
               >
                 <div className={`absolute inset-0 bg-gradient-to-br ${pkg.color} opacity-0 transition-opacity group-hover:opacity-100`} />
 
                 {pkg.badge ? (
                   <div className={`absolute right-3 top-3 rounded-full px-2 py-0.5 ${pkg.popular
-                    ? 'border border-emerald-500/30 bg-emerald-500/20'
-                    : 'border border-amber-500/30 bg-amber-500/20'}`}
+                    ? 'border border-studio-600 bg-studio-800/80'
+                    : 'border border-studio-600 bg-studio-800/80'}`}
                   >
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider ${pkg.popular ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-200">
                       {pkg.badge}
                     </span>
                   </div>
@@ -315,15 +325,15 @@ export default function BillingPage() {
                   </div>
                   <p className="mt-1 text-[11px] text-zinc-600">One-time payment</p>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-xs text-zinc-400">{pkg.credits.toLocaleString()} credits</span>
-                    <span className={`text-[10px] font-semibold ${pkg.perCredit.startsWith('Save') ? 'text-emerald-400' : 'text-zinc-600'}`}>
+                  <span className="text-xs text-zinc-400">{pkg.credits.toLocaleString()} credits</span>
+                    <span className={`text-[10px] font-semibold ${pkg.perCredit.startsWith('Save') ? 'text-zinc-300' : 'text-zinc-500'}`}>
                       {pkg.perCredit}
                     </span>
                   </div>
 
                   <div className={`mt-4 flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold transition ${pkg.popular
-                    ? 'bg-emerald-500 text-white group-hover:bg-emerald-400'
-                    : 'bg-white/10 text-zinc-300 group-hover:bg-white/15'}`}
+                    ? 'border border-studio-600 bg-studio-800 text-studio-cream group-hover:border-zinc-400 group-hover:bg-studio-800/90'
+                    : 'border border-studio-700 bg-studio-900 text-zinc-300 group-hover:border-studio-600 group-hover:bg-studio-800'}`}
                   >
                     <CreditCard className="h-3.5 w-3.5" />
                     <span>Purchase</span>
@@ -373,7 +383,7 @@ export default function BillingPage() {
                 onClick={() => {
                   setTypeFilter('all');
                 }}
-                className="appearance-none rounded-xl border border-white/5 bg-white/[0.02] px-3 py-1.5 pr-8 text-xs font-medium text-zinc-400 transition hover:border-white/10 hover:bg-white/5"
+                className={`${studioGhostButtonClass} h-8 px-3 pr-8 text-xs`}
               >
                 Clear filters
               </button>
@@ -381,7 +391,7 @@ export default function BillingPage() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-white/5 bg-ink-950/80 backdrop-blur-md">
+          <div className={`overflow-hidden ${panelClass}`}>
             <div className="grid grid-cols-[1fr_auto_auto] gap-4 border-b border-white/5 px-5 py-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600 md:grid-cols-[140px_1fr_auto_auto]">
               <span className="hidden md:block">Date</span>
               <span>Description</span>
@@ -412,8 +422,8 @@ export default function BillingPage() {
                 </div>
 
                 <div className="flex items-center justify-end gap-1.5">
-                  <ArrowDownLeft className="h-3 w-3 text-emerald-400" />
-                  <span className="text-sm font-medium tabular-nums text-emerald-400">
+                  <ArrowDownLeft className="h-3 w-3 text-zinc-300" />
+                  <span className="text-sm font-medium tabular-nums text-zinc-300">
                     +{transaction.credits.toLocaleString()}
                   </span>
                 </div>
@@ -444,6 +454,6 @@ export default function BillingPage() {
           clientSecret={null}
         />
       )}
-    </main>
+    </StudioPageShell>
   );
 }

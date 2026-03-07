@@ -9,5 +9,16 @@
       "sharedWorkspaceIds": [],
       "createdAt": "2026-02-24T08:07:31.577Z"
     }
+  ],
+  "personal-project-space-2-mlv2pvj6": [
+    {
+      "id": "test-66d4ebb4",
+      "ownerWorkspaceId": "personal-project-space-2-mlv2pvj6",
+      "name": "Test",
+      "description": "Custom workflow space",
+      "protection": "standard",
+      "sharedWorkspaceIds": [],
+      "createdAt": "2026-03-04T23:55:39.730Z"
+    }
   ]
 }

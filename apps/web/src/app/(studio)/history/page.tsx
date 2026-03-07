@@ -1,19 +1,22 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Clock3, Film, Image as ImageIcon, RefreshCcw } from 'lucide-react';
+import { Clock3, Download, Film, Image as ImageIcon, RefreshCcw, X } from 'lucide-react';
 import { GenerationHistoryItem, listGenerationHistory } from '@/lib/api';
+import { StudioPageShell } from '@/components/studio/StudioPageShell';
+import { STUDIO_PANEL_CLASS, STUDIO_PANEL_MUTED_CLASS } from '@/components/studio/StudioSection';
+import {
+  studioGhostButtonClass,
+  studioInputClass,
+  studioKickerClass,
+  studioSecondaryButtonClass,
+  studioStatusClass
+} from '@/components/studio/StudioControls';
 
-const panelClass = 'rounded-2xl border border-white/5 bg-ink-950/80 backdrop-blur-sm';
+const panelClass = STUDIO_PANEL_CLASS;
 const AUTO_APPLY_DELAY_MS = 200;
 
 const isVideoUrl = (url: string) => /\.(mp4|webm|mov)(\?|$)/i.test(url);
-
-const formatDateTime = (value: string) =>
-  new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(new Date(value));
 
 const getDaysRemaining = (expiresAt: string) => {
   const diff = new Date(expiresAt).getTime() - Date.now();
@@ -37,6 +40,7 @@ export default function HistoryPage() {
   const [retentionDays, setRetentionDays] = useState(14);
   const [status, setStatus] = useState('Loading generation history...');
   const [loading, setLoading] = useState(false);
+  const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null);
 
   const loadHistory = async (filters = activeFilters) => {
     setLoading(true);
@@ -89,6 +93,21 @@ export default function HistoryPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!viewerImageUrl) {
+      return;
+    }
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setViewerImageUrl(null);
+      }
+    };
+
+    document.addEventListener('keydown', onEscape);
+    return () => document.removeEventListener('keydown', onEscape);
+  }, [viewerImageUrl]);
 
   const clearAutoApplyTimer = () => {
     if (autoApplyTimeoutRef.current) {
@@ -175,109 +194,179 @@ export default function HistoryPage() {
       .sort((a, b) => a.localeCompare(b));
   }, [filterSourceItems]);
 
+  const historyMetrics = useMemo(() => {
+    const videoCount = items.filter((item) => {
+      const mediaUrls = Array.isArray(item.mediaUrls) && item.mediaUrls.length > 0
+        ? item.mediaUrls
+        : [item.mediaUrl];
+      return mediaUrls.some((url) => isVideoUrl(url));
+    }).length;
+
+    return {
+      total: items.length,
+      videos: videoCount,
+      images: Math.max(0, items.length - videoCount),
+      workspaces: new Set(items.map((item) => item.workspaceId)).size
+    };
+  }, [items]);
+
   return (
-    <main className="min-h-full bg-[radial-gradient(circle_at_14%_8%,rgba(255,255,255,0.02),transparent_40%),linear-gradient(165deg,#000000_0%,#09090b_58%,#000000_100%)] p-5 md:p-7">
-      <header className={`${panelClass} p-6`}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-zinc-300" />
-              Generation Timeline
-            </span>
-            <h1 className="mt-3 font-display text-4xl leading-[0.92] text-zinc-50">History</h1>
-            <p className="mt-2 text-sm text-zinc-400">
-              Your completed generations are available for {retentionDays} days and then automatically removed.
-            </p>
+    <StudioPageShell className="pb-14">
+      <header className={`${panelClass} relative overflow-hidden p-6 md:p-8`}>
+        <div className="pointer-events-none absolute right-0 top-0 h-64 w-64 -translate-y-1/4 translate-x-1/4 rounded-full bg-studio-gold/10 blur-3xl" />
+        <div className="relative z-10 flex flex-col gap-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="flex flex-col gap-3">
+              <span className={studioKickerClass}>
+                <span className="h-1.5 w-1.5 rounded-full bg-studio-gold" />
+                Generation Timeline
+              </span>
+              <h1 className="text-3xl font-bold leading-tight text-white md:text-4xl">History</h1>
+              <p className="max-w-3xl text-sm text-zinc-400 md:text-base">
+                Audit recent outputs, review prompts, and recover production assets before they expire after {retentionDays} days.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void loadHistory()}
+              disabled={loading}
+              className={`${studioSecondaryButtonClass} h-9 px-4 text-xs`}
+            >
+              <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? 'Refreshing...' : 'Refresh History'}
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void loadHistory()}
-            disabled={loading}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-semibold text-zinc-300 transition hover:bg-white/10 disabled:opacity-60"
-          >
-            <RefreshCcw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-studio-700 bg-studio-950/70 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Items</p>
+              <p className="mt-1 text-2xl font-bold text-white">{historyMetrics.total}</p>
+            </div>
+            <div className="rounded-xl border border-studio-700 bg-studio-950/70 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Images</p>
+              <p className="mt-1 text-2xl font-bold text-white">{historyMetrics.images}</p>
+            </div>
+            <div className="rounded-xl border border-studio-700 bg-studio-950/70 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Videos</p>
+              <p className="mt-1 text-2xl font-bold text-white">{historyMetrics.videos}</p>
+            </div>
+            <div className="rounded-xl border border-studio-700 bg-studio-950/70 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Workspaces</p>
+              <p className="mt-1 text-2xl font-bold text-white">{historyMetrics.workspaces}</p>
+            </div>
+          </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_180px_auto_auto]">
-          <select
-            value={workspaceFilterDraft}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setWorkspaceFilterDraft(nextValue);
-              scheduleAutoApply(nextValue.trim() || undefined, modelFilterDraft.trim() || undefined);
-            }}
-            className="h-10 rounded-lg border border-white/10 bg-ink-900 px-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300/50"
-          >
-            <option value="">All workspaces</option>
-            {workspaceOptions.map((workspaceId) => (
-              <option key={workspaceId} value={workspaceId}>
-                {workspaceId}
-              </option>
-            ))}
-          </select>
-          <select
-            value={modelFilterDraft}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setModelFilterDraft(nextValue);
-              scheduleAutoApply(workspaceFilterDraft.trim() || undefined, nextValue.trim() || undefined);
-            }}
-            className="h-10 rounded-lg border border-white/10 bg-ink-900 px-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300/50"
-          >
-            <option value="">All models</option>
-            {modelOptions.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={startDateDraft}
-            onChange={(event) => setStartDateDraft(event.target.value)}
-            className="h-10 rounded-lg border border-white/10 bg-ink-900 px-3 text-sm text-zinc-100 outline-none transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300/50"
-          />
-          <input
-            type="date"
-            value={endDateDraft}
-            onChange={(event) => setEndDateDraft(event.target.value)}
-            className="h-10 rounded-lg border border-white/10 bg-ink-900 px-3 text-sm text-zinc-100 outline-none transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300/50"
-          />
-          <button
-            type="button"
-            onClick={applyFilters}
-            disabled={loading}
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 disabled:opacity-60"
-          >
-            Apply Date Range
-          </button>
-          <button
-            type="button"
-            onClick={clearFilters}
-            disabled={loading}
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 bg-transparent px-3 text-xs font-semibold text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200 disabled:opacity-60"
-          >
-            Clear
-          </button>
-        </div>
+          <div className="rounded-xl border border-studio-700 bg-studio-950/70 p-4">
+            <h2 className="text-sm font-semibold text-white">How History Works</h2>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-studio-700 bg-studio-900/70 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">1. Track every run</p>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                  Each generation stores prompt, model, workspace, and media output in one timeline.
+                </p>
+              </div>
+              <div className="rounded-lg border border-studio-700 bg-studio-900/70 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">2. Narrow quickly</p>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                  Filter by workspace, model, or date range to isolate the exact batch you need.
+                </p>
+              </div>
+              <div className="rounded-lg border border-studio-700 bg-studio-900/70 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">3. Export before expiry</p>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                  Open assets directly and archive critical outputs before retention windows end.
+                </p>
+              </div>
+            </div>
+          </div>
 
-        <p className="mt-4 text-xs font-medium text-zinc-400">{status}</p>
+          <div className="rounded-xl border border-studio-700 bg-studio-950/70 p-4">
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px_180px_auto_auto]">
+              <select
+                value={workspaceFilterDraft}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setWorkspaceFilterDraft(nextValue);
+                  scheduleAutoApply(nextValue.trim() || undefined, modelFilterDraft.trim() || undefined);
+                }}
+                className={studioInputClass}
+              >
+                <option value="">All workspaces</option>
+                {workspaceOptions.map((workspaceId) => (
+                  <option key={workspaceId} value={workspaceId}>
+                    {workspaceId}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={modelFilterDraft}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setModelFilterDraft(nextValue);
+                  scheduleAutoApply(workspaceFilterDraft.trim() || undefined, nextValue.trim() || undefined);
+                }}
+                className={studioInputClass}
+              >
+                <option value="">All models</option>
+                {modelOptions.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={startDateDraft}
+                onChange={(event) => setStartDateDraft(event.target.value)}
+                className={studioInputClass}
+              />
+              <input
+                type="date"
+                value={endDateDraft}
+                onChange={(event) => setEndDateDraft(event.target.value)}
+                className={studioInputClass}
+              />
+              <button
+                type="button"
+                onClick={applyFilters}
+                disabled={loading}
+                className={`${studioSecondaryButtonClass} px-3 text-xs`}
+              >
+                Apply Date Range
+              </button>
+              <button
+                type="button"
+                onClick={clearFilters}
+                disabled={loading}
+                className={`${studioGhostButtonClass} px-3 text-xs`}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div className={studioStatusClass}>{status}</div>
+        </div>
       </header>
 
-      <section className="mt-4 space-y-4">
+      <section className="mt-6 space-y-4">
         {groupedByDate.length === 0 ? (
-          <div className={`${panelClass} flex h-36 items-center justify-center text-sm text-zinc-500`}>
-            No completed generations yet.
+          <div className={`${STUDIO_PANEL_MUTED_CLASS} flex h-44 flex-col items-center justify-center gap-2 text-sm text-zinc-500`}>
+            <Clock3 className="h-5 w-5 text-zinc-600" />
+            <span>No completed generations yet.</span>
           </div>
         ) : (
           groupedByDate.map(([dateKey, groupItems]) => (
-            <section key={dateKey} className={panelClass}>
-              <div className="flex items-center gap-2 border-b border-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-400">
-                <Clock3 className="h-3.5 w-3.5" />
-                {new Date(`${dateKey}T00:00:00.000Z`).toLocaleDateString(undefined, { dateStyle: 'full' })}
+            <section key={dateKey} className={`${panelClass} overflow-hidden`}>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 bg-white/[0.02] px-4 py-3">
+                <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-400">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  {new Date(`${dateKey}T00:00:00.000Z`).toLocaleDateString(undefined, { dateStyle: 'full' })}
+                </div>
+                <span className="rounded-full border border-studio-700 bg-studio-900/80 px-2 py-0.5 text-[10px] font-semibold text-zinc-400">
+                  {groupItems.length} item{groupItems.length === 1 ? '' : 's'}
+                </span>
               </div>
 
               <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -290,65 +379,103 @@ export default function HistoryPage() {
                   const video = isVideoUrl(primaryMediaUrl);
 
                   return (
-                    <article key={item.id} className="overflow-hidden rounded-xl border border-white/10 bg-ink-900/70">
-                      <div className="aspect-video w-full overflow-hidden bg-black/40">
+                    <article
+                      key={item.id}
+                      className={`group relative min-h-[320px] overflow-hidden rounded-xl border border-white/10 bg-ink-900/75 transition hover:border-white/20 ${video ? '' : 'cursor-zoom-in'}`}
+                      onClick={(event) => {
+                        if (video) {
+                          return;
+                        }
+
+                        const target = event.target as HTMLElement;
+                        if (target.closest('a,button')) {
+                          return;
+                        }
+
+                        setViewerImageUrl(primaryMediaUrl);
+                      }}
+                    >
+                      <div className="absolute inset-0 bg-black/40">
                         {video ? (
-                          <video src={primaryMediaUrl} controls preload="metadata" className="h-full w-full object-cover" />
+                          <video
+                            src={primaryMediaUrl}
+                            autoPlay
+                            muted
+                            loop
+                            playsInline
+                            preload="metadata"
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
-                          <img src={primaryMediaUrl} alt="Generated media" className="h-full w-full object-cover" loading="lazy" />
+                          <button
+                            type="button"
+                            onClick={() => setViewerImageUrl(primaryMediaUrl)}
+                            className="h-full w-full"
+                            aria-label="Open image viewer"
+                          >
+                            <img
+                              src={primaryMediaUrl}
+                              alt="Generated media"
+                              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                              loading="lazy"
+                            />
+                          </button>
                         )}
+                        <div
+                          className="pointer-events-none absolute inset-0 bg-black/10 backdrop-blur-[2px] [mask-image:linear-gradient(to_top,rgba(0,0,0,1)_0%,rgba(0,0,0,0.85)_50%,rgba(0,0,0,0)_100%)]"
+                        />
+                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/92 via-black/45 to-black/20" />
                       </div>
 
-                      <div className="space-y-2 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-300">
+                      <div className="relative z-10 flex h-full flex-col justify-between p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/35 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-200 backdrop-blur-sm">
                             {video ? <Film className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
                             {item.model}
                           </span>
-                          <span className="text-[10px] text-zinc-500">{daysRemaining}d left</span>
+                          <span className="rounded-full border border-amber-300/35 bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 backdrop-blur-sm">
+                            {daysRemaining}d left
+                          </span>
                         </div>
 
-                        <p className="line-clamp-3 text-xs leading-relaxed text-zinc-300">{item.prompt}</p>
+                        <div className="space-y-2.5">
+                          <p className="line-clamp-3 text-xs leading-relaxed text-zinc-200">{item.prompt}</p>
 
-                        {mediaUrls.length > 1 ? (
-                          <div className="grid grid-cols-3 gap-1.5">
-                            {mediaUrls.map((url, index) => {
-                              const thumbIsVideo = isVideoUrl(url);
+                          {mediaUrls.length > 1 ? (
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {mediaUrls.map((url, index) => {
+                                const thumbIsVideo = isVideoUrl(url);
 
-                              return (
-                                <a
-                                  key={`${item.id}_${index}`}
-                                  href={url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="overflow-hidden rounded-md border border-white/10 transition hover:border-white/30"
-                                  title={`Open media ${index + 1}`}
-                                >
-                                  {thumbIsVideo ? (
-                                    <video src={url} preload="metadata" className="h-16 w-full object-cover" />
+                                return (
+                                  thumbIsVideo ? (
+                                    <a
+                                      key={`${item.id}_${index}`}
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="overflow-hidden rounded-md border border-white/20 bg-black/30 transition hover:border-white/40"
+                                      title={`Open media ${index + 1}`}
+                                    >
+                                      <video src={url} preload="metadata" className="h-16 w-full object-cover" />
+                                    </a>
                                   ) : (
-                                    <img src={url} alt={`Generated media ${index + 1}`} className="h-16 w-full object-cover" loading="lazy" />
-                                  )}
-                                </a>
-                              );
-                            })}
-                          </div>
-                        ) : null}
+                                    <button
+                                      key={`${item.id}_${index}`}
+                                      type="button"
+                                      onClick={() => setViewerImageUrl(url)}
+                                      className="overflow-hidden rounded-md border border-white/20 bg-black/30 transition hover:border-white/40"
+                                      title={`Open media ${index + 1}`}
+                                      aria-label={`Open image ${index + 1}`}
+                                    >
+                                      <img src={url} alt={`Generated media ${index + 1}`} className="h-16 w-full object-cover" loading="lazy" />
+                                    </button>
+                                  )
+                                );
+                              })}
+                            </div>
+                          ) : null}
 
-                        <div className="text-[10px] text-zinc-500">
-                          <p>Generated: {formatDateTime(item.createdAt)}</p>
-                          <p>Expires: {formatDateTime(item.expiresAt)}</p>
-                          <p className="truncate">Workspace: {item.workspaceId}</p>
                         </div>
-
-                        <a
-                          href={primaryMediaUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex h-8 items-center rounded-lg border border-white/10 px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10"
-                        >
-                          Open primary media
-                        </a>
                       </div>
                     </article>
                   );
@@ -358,6 +485,45 @@ export default function HistoryPage() {
           ))
         )}
       </section>
-    </main>
+
+      {viewerImageUrl ? (
+        <div
+          className="fixed inset-0 z-[220] bg-black/88 backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setViewerImageUrl(null);
+            }
+          }}
+        >
+          <div className="flex min-h-full items-center justify-center px-4 pb-6 pt-24">
+            <div className="relative inline-flex max-h-[calc(100dvh-8rem)] max-w-[min(92vw,1200px)] items-center justify-center">
+              <a
+                href={viewerImageUrl}
+                download
+                className="absolute right-12 top-2 z-10 inline-flex h-9 items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3 text-xs font-semibold text-zinc-100 transition hover:bg-black/80"
+                aria-label="Download image"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download
+              </a>
+              <button
+                type="button"
+                onClick={() => setViewerImageUrl(null)}
+                className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/60 text-zinc-100 transition hover:bg-black/80"
+                aria-label="Close image viewer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              <img
+                src={viewerImageUrl}
+                alt="History preview"
+                className="block h-auto w-auto max-h-[calc(100dvh-8rem)] max-w-[min(92vw,1200px)] rounded-lg border border-white/15 object-contain shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </StudioPageShell>
   );
 }

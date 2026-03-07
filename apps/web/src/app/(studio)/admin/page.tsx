@@ -3,6 +3,9 @@ import { ApiKeyManager } from '@/components/admin/ApiKeyManager';
 import { SystemLogs } from '@/components/admin/SystemLogs';
 import { ShieldAlert } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
+import { StudioPageShell } from '@/components/studio/StudioPageShell';
+import { STUDIO_PANEL_CLASS } from '@/components/studio/StudioSection';
+import { studioKickerClass } from '@/components/studio/StudioControls';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -41,8 +44,8 @@ export default async function AdminDashboardPage() {
 
   if (!allowed) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0a] p-4">
-        <div className="w-full max-w-md space-y-4 rounded-2xl border border-red-900/50 bg-neutral-900 p-8 text-center">
+      <StudioPageShell className="flex min-h-full items-center justify-center">
+        <div className="w-full max-w-md space-y-4 rounded-2xl border border-red-900/50 bg-studio-900 p-8 text-center">
           <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
             <ShieldAlert className="h-6 w-6 text-red-500" />
           </div>
@@ -51,38 +54,26 @@ export default async function AdminDashboardPage() {
             You do not have permission to view the developer dashboard.
           </p>
         </div>
-      </div>
+      </StudioPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-neutral-200 selection:bg-indigo-500/30">
-      <nav className="sticky top-0 z-50 border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 font-bold text-white shadow-lg shadow-indigo-500/20">
-              VL
-            </div>
-            <span className="font-semibold tracking-tight text-white">Vanta Lab</span>
-            <span className="ml-2 rounded-full bg-indigo-500/10 px-2 py-0.5 text-xs font-medium text-indigo-400">
-              Admin
-            </span>
-          </div>
-        </div>
-      </nav>
-
-      <main className="mx-auto max-w-7xl space-y-12 px-6 py-12">
-        <div>
-          <h1 className="mb-2 text-3xl font-bold text-white">Developer Dashboard</h1>
-          <p className="text-neutral-400">
+    <StudioPageShell className="space-y-10 pb-16">
+      <section className={`${STUDIO_PANEL_CLASS} p-8 md:p-10`}>
+        <span className={studioKickerClass}>
+          <span className="h-2 w-2 rounded-full bg-studio-gold" />
+          Developer Console
+        </span>
+        <h1 className="mt-6 text-4xl font-bold leading-tight text-white">Developer Dashboard</h1>
+        <p className="mt-3 text-lg text-zinc-400">
             Monitor infrastructure KPIs, manage load balancer capacity, and review system logs.
-          </p>
-        </div>
+        </p>
+      </section>
 
-        <KpiStats />
-        <ApiKeyManager />
-        <SystemLogs />
-      </main>
-    </div>
+      <KpiStats />
+      <ApiKeyManager />
+      <SystemLogs />
+    </StudioPageShell>
   );
 }

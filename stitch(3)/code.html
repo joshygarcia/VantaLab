@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Vanta Lab Studio - Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#3B82F6",
+                        "background-light": "#F9FAFB",
+                        "background-dark": "#0B0C10",
+                        "surface-dark": "#15171E",
+                        "surface-hover-dark": "#1F222C",
+                        "border-dark": "#2A2D3A",
+                        "text-main-dark": "#FFFFFF",
+                        "text-muted-dark": "#9CA3AF"
+                    },
+                    fontFamily: {
+                        display: ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.5rem",
+                    },
+                },
+            },
+        };
+    </script>
+<style type="text/tailwindcss">
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+            font-size: 20px;
+        }
+        .sidebar-grid {
+            background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 32px 32px;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-gray-900 dark:text-text-main-dark h-screen overflow-hidden flex flex-col font-display selection:bg-primary selection:text-white sidebar-grid">
+<header class="h-20 bg-transparent flex items-center justify-between px-8 md:px-12 shrink-0 z-50 relative max-w-[1400px] mx-auto w-full">
+<div class="flex items-center gap-4 w-64 shrink-0">
+<div class="flex items-center gap-2">
+<span class="text-xl font-bold tracking-tight text-gray-900 dark:text-white flex items-center gap-2">
+<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M4 12L8 4L12 12L16 4L20 12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+<path d="M4 20L12 12L20 20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+                    Vanta Lab
+                </span>
+<div class="h-4 w-px bg-gray-300 dark:bg-border-dark mx-1"></div>
+<span class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-text-muted-dark font-semibold">Vanta Lab v2.0</span>
+</div>
+</div>
+<nav class="hidden md:flex flex-1 justify-center items-center gap-8">
+<a class="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors group" href="#">
+<span class="material-symbols-outlined text-[24px] text-blue-400 group-hover:text-blue-300 transition-colors">dashboard</span>
+<span class="text-xs font-medium">Dashboard</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors group" href="#">
+<span class="material-symbols-outlined text-[24px] text-teal-400 group-hover:text-teal-300 transition-colors">account_tree</span>
+<span class="text-xs font-medium">Projects</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors group" href="#">
+<span class="material-symbols-outlined text-[24px] text-purple-400 group-hover:text-purple-300 transition-colors">explore</span>
+<span class="text-xs font-medium">Spaces</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors group" href="#">
+<span class="material-symbols-outlined text-[24px] text-yellow-400 group-hover:text-yellow-300 transition-colors">category</span>
+<span class="text-xs font-medium">Assets</span>
+</a>
+</nav>
+<div class="flex items-center gap-6 w-64 justify-end shrink-0">
+<button class="text-gray-400 hover:text-white transition-colors relative">
+<span class="material-symbols-outlined text-[22px]">notifications</span>
+<span class="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full border-2 border-background-dark"></span>
+</button>
+<button class="text-gray-400 hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[22px]">settings</span>
+</button>
+<button class="hover:opacity-80 transition-opacity">
+<div class="w-8 h-8 rounded-full bg-orange-600 flex items-center justify-center text-white font-semibold text-sm">
+                    J
+                </div>
+</button>
+</div>
+</header>
+<main class="flex-1 overflow-y-auto overflow-x-hidden flex flex-col pb-24">
+<section class="px-8 md:px-12 py-8 max-w-[1400px] mx-auto w-full mb-4">
+<div class="bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-2xl p-6 md:p-10 shadow-sm relative overflow-hidden">
+<div class="absolute top-0 right-0 -mt-20 -mr-20 w-96 h-96 bg-primary opacity-[0.03] dark:opacity-[0.02] rounded-full blur-3xl pointer-events-none"></div>
+<div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
+<div class="max-w-3xl">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 dark:bg-[#1A1D27] border border-gray-200 dark:border-border-dark mb-4">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Vanta Lab Studio</span>
+</div>
+<h1 class="text-2xl md:text-4xl font-bold text-gray-900 dark:text-white leading-tight mb-3">
+                            Continue building with the same cinematic language from your landing experience.
+                        </h1>
+<p class="text-base text-gray-600 dark:text-text-muted-dark max-w-2xl leading-relaxed">
+                            Move from concept to production with reusable spaces, character systems, and asset pipelines built for creative velocity.
+                        </p>
+</div>
+</div>
+</div>
+</section>
+<section class="mb-12 px-8 md:px-12 max-w-[1400px] mx-auto w-full">
+<div class="mb-6 flex justify-between items-end">
+<div>
+<h2 class="text-lg font-bold text-gray-900 dark:text-white">Studio Tools</h2>
+<p class="text-sm text-gray-500 dark:text-text-muted-dark">Quick access to core modules</p>
+</div>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-full border border-border-dark text-text-muted-dark hover:text-white hover:border-white transition-colors">
+<span class="material-symbols-outlined text-sm">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full border border-border-dark text-text-muted-dark hover:text-white hover:border-white transition-colors">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+</div>
+<div class="flex gap-6 overflow-x-auto pb-4 hide-scrollbar snap-x">
+<a class="flex-none w-72 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark hover:border-gray-300 dark:hover:border-gray-600 rounded-xl p-6 transition-all hover:shadow-md dark:hover:shadow-none group snap-start" href="#">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-[#1A1D27] flex items-center justify-center mb-6 group-hover:bg-gray-200 dark:group-hover:bg-[#252836] transition-colors">
+<span class="material-symbols-outlined text-gray-700 dark:text-gray-300">grid_view</span>
+</div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-2">Projects</h3>
+<p class="text-sm text-gray-500 dark:text-text-muted-dark">Manage project environments and workflows.</p>
+</a>
+<a class="flex-none w-72 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark hover:border-gray-300 dark:hover:border-gray-600 rounded-xl p-6 transition-all hover:shadow-md dark:hover:shadow-none group snap-start" href="#">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-[#1A1D27] flex items-center justify-center mb-6 group-hover:bg-gray-200 dark:group-hover:bg-[#252836] transition-colors">
+<span class="material-symbols-outlined text-gray-700 dark:text-gray-300">explore</span>
+</div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-2">Spaces</h3>
+<p class="text-sm text-gray-500 dark:text-text-muted-dark">Launch curated templates for your labs.</p>
+</a>
+<a class="flex-none w-72 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark hover:border-gray-300 dark:hover:border-gray-600 rounded-xl p-6 transition-all hover:shadow-md dark:hover:shadow-none group snap-start" href="#">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-[#1A1D27] flex items-center justify-center mb-6 group-hover:bg-gray-200 dark:group-hover:bg-[#252836] transition-colors">
+<span class="material-symbols-outlined text-gray-700 dark:text-gray-300">library_books</span>
+</div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-2">Element Library</h3>
+<p class="text-sm text-gray-500 dark:text-text-muted-dark">Curate reusable element packs and styles.</p>
+</a>
+<a class="flex-none w-72 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark hover:border-gray-300 dark:hover:border-gray-600 rounded-xl p-6 transition-all hover:shadow-md dark:hover:shadow-none group snap-start" href="#">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-[#1A1D27] flex items-center justify-center mb-6 group-hover:bg-gray-200 dark:group-hover:bg-[#252836] transition-colors">
+<span class="material-symbols-outlined text-gray-700 dark:text-gray-300">science</span>
+</div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-2">Character Creator</h3>
+<p class="text-sm text-gray-500 dark:text-text-muted-dark">Generate and sync cross-project identities.</p>
+</a>
+<a class="flex-none w-72 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark hover:border-gray-300 dark:hover:border-gray-600 rounded-xl p-6 transition-all hover:shadow-md dark:hover:shadow-none group snap-start" href="#">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-[#1A1D27] flex items-center justify-center mb-6 group-hover:bg-gray-200 dark:group-hover:bg-[#252836] transition-colors">
+<span class="material-symbols-outlined text-gray-700 dark:text-gray-300">history</span>
+</div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-2">History</h3>
+<p class="text-sm text-gray-500 dark:text-text-muted-dark">Track every change and iteration.</p>
+</a>
+<a class="flex-none w-72 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark hover:border-gray-300 dark:hover:border-gray-600 rounded-xl p-6 transition-all hover:shadow-md dark:hover:shadow-none group snap-start" href="#">
+<div class="w-10 h-10 rounded-lg bg-gray-100 dark:bg-[#1A1D27] flex items-center justify-center mb-6 group-hover:bg-gray-200 dark:group-hover:bg-[#252836] transition-colors">
+<span class="material-symbols-outlined text-gray-700 dark:text-gray-300">terminal</span>
+</div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-2">Developer</h3>
+<p class="text-sm text-gray-500 dark:text-text-muted-dark">Access API keys and webhooks.</p>
+</a>
+</div>
+</section>
+<section class="mb-12 px-8 md:px-12 max-w-[1400px] mx-auto w-full">
+<div class="mb-6">
+<h2 class="text-lg font-bold text-gray-900 dark:text-white">Recent Activity &amp; Systems</h2>
+<p class="text-sm text-gray-500 dark:text-text-muted-dark">Operational readiness and governance</p>
+</div>
+<div class="flex gap-6 overflow-x-auto pb-4 hide-scrollbar snap-x">
+<div class="flex-none w-[400px] bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-xl p-6 flex flex-col h-full snap-start">
+<div class="flex items-center gap-3 mb-4">
+<span class="material-symbols-outlined text-primary">bolt</span>
+<h3 class="text-base font-bold text-gray-900 dark:text-white">Governed Production</h3>
+</div>
+<p class="text-sm text-gray-600 dark:text-text-muted-dark leading-relaxed">
+                        Control spaces with protection modes and keep your workspace architecture reliable across various production stages.
+                    </p>
+</div>
+<div class="flex-none w-[400px] bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-xl p-6 flex flex-col h-full snap-start">
+<div class="flex items-center gap-3 mb-4">
+<span class="material-symbols-outlined text-purple-400">auto_awesome</span>
+<h3 class="text-base font-bold text-gray-900 dark:text-white">Prompt-to-Asset Continuity</h3>
+</div>
+<p class="text-sm text-gray-600 dark:text-text-muted-dark leading-relaxed">
+                        Create in the lab and immediately persist reusable assets for workflows and teams with seamless asset management.
+                    </p>
+</div>
+<div class="flex-none w-[400px] bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-xl p-6 flex flex-col h-full snap-start">
+<div class="flex items-center gap-3 mb-4">
+<span class="material-symbols-outlined text-teal-400">rocket_launch</span>
+<h3 class="text-base font-bold text-gray-900 dark:text-white">Operational Readiness</h3>
+</div>
+<p class="text-sm text-gray-600 dark:text-text-muted-dark leading-relaxed">
+                        Launch from dashboard to execution surfaces with fewer hops and cleaner context for your engineering teams.
+                    </p>
+</div>
+<div class="flex-none w-[400px] bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-xl p-6 flex flex-col h-full snap-start">
+<div class="flex items-center gap-3 mb-4">
+<span class="material-symbols-outlined text-orange-400">security</span>
+<h3 class="text-base font-bold text-gray-900 dark:text-white">Security &amp; Auditing</h3>
+</div>
+<p class="text-sm text-gray-600 dark:text-text-muted-dark leading-relaxed">
+                        Full traceability of model interactions and data residency compliance across global studio operations.
+                    </p>
+</div>
+</div>
+</section>
+</main>
+
+</body></html>

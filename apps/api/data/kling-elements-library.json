@@ -32,12 +32,27 @@
     {
       "id": "untitled_character_1772267071602",
       "name": "Untitled Character",
-      "description": "Selections: Female, Latin, Adult, Grey, Long hair, None, Curvy hourglass, Hyper-realistic",
+      "description": "Selections: Asian, Adult, Grey, Long hair, Freckles, Athletic and proportional, Hyper-realistic",
       "imageUrls": [
         "https://tempfile.aiquickdraw.com/f/a12fcdde-dadc-4b69-a0b7-b3ad2c28ec42_0.jpg",
         "https://tempfile.aiquickdraw.com/f/a12fce2b-e619-4aa8-814b-d8f8f6d68545_0.jpg",
         "https://tempfile.aiquickdraw.com/f/a12fce86-8191-4be1-9aae-1b974cc55e68_0.jpg",
         "https://tempfile.aiquickdraw.com/f/a12fdb3e-b649-423c-9433-260fe4634bb5_0.jpg"
+      ],
+      "tags": [
+        "character",
+        "hyper-realistic"
+      ]
+    },
+    {
+      "id": "asian_1772725079687",
+      "name": "Vitiligo",
+      "description": "Selections: Female, European, Adult, Brown, Long hair, Vitiligo, Curvy hourglass, Hyper-realistic",
+      "imageUrls": [
+        "https://esxcqbmwtndpmdnazvmm.supabase.co/storage/v1/object/public/creator-lab-assets/generated-characters/local/36051a03-89fc-4051-a3a5-4c8ba87e1620/job_1910ced4-dacb-4bf5-a69f-efe749c20f63_profile.png",
+        "https://esxcqbmwtndpmdnazvmm.supabase.co/storage/v1/object/public/creator-lab-assets/generated-characters/local/36051a03-89fc-4051-a3a5-4c8ba87e1620/job_1910ced4-dacb-4bf5-a69f-efe749c20f63_full-body.png",
+        "https://esxcqbmwtndpmdnazvmm.supabase.co/storage/v1/object/public/creator-lab-assets/generated-characters/local/36051a03-89fc-4051-a3a5-4c8ba87e1620/job_1910ced4-dacb-4bf5-a69f-efe749c20f63_sheet.png",
+        "https://esxcqbmwtndpmdnazvmm.supabase.co/storage/v1/object/public/creator-lab-assets/generated-characters/local/36051a03-89fc-4051-a3a5-4c8ba87e1620/job_df7e5684-8701-4509-a861-2d6f87409e41_profile.png"
       ],
       "tags": [
         "character",

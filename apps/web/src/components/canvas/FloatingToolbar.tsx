@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Hand, Unlink2 } from 'lucide-react';
 import { ADD_NODE_MENU_ITEMS, AddNodeType, NodeMenuItem } from './add-node-menu';
 
-type ToolMode = 'select' | 'draw';
+type ToolMode = 'select' | 'draw' | 'disconnect';
 
 type FloatingToolbarProps = {
   activeTool: ToolMode;
   canUndo: boolean;
   canRedo: boolean;
   onAddNode: (type: AddNodeType) => void;
-  onCutSelection: () => void;
   onSetTool: (tool: ToolMode) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -16,10 +16,10 @@ type FloatingToolbarProps = {
 
 const iconButtonClass = (active = false) =>
   [
-    'inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-200',
+    'inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors duration-200',
     active
-      ? 'bg-white text-ink-950'
-      : 'text-zinc-400 hover:bg-white/10 hover:text-white',
+      ? 'border-studio-gold/35 bg-studio-gold/15 text-blue-100'
+      : 'border-transparent text-zinc-400 hover:border-white/10 hover:bg-white/5 hover:text-white',
     'disabled:cursor-not-allowed disabled:opacity-45'
   ].join(' ');
 
@@ -28,7 +28,6 @@ export function FloatingToolbar({
   canUndo,
   canRedo,
   onAddNode,
-  onCutSelection,
   onSetTool,
   onUndo,
   onRedo
@@ -83,7 +82,7 @@ export function FloatingToolbar({
 
   return (
     <div className="pointer-events-none absolute left-1/2 top-4 z-40 -translate-x-1/2" ref={rootRef}>
-      <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-white/10 bg-ink-900 p-1.5 shadow-panel backdrop-blur-md">
+      <div className="pointer-events-auto flex items-center gap-1 rounded-xl border border-studio-700 bg-studio-900/90 p-1.5 shadow-[0_16px_28px_rgba(0,0,0,0.35)] backdrop-blur-md">
         <button
           className={iconButtonClass(menuOpen)}
           title="Open node menu"
@@ -98,7 +97,7 @@ export function FloatingToolbar({
           </svg>
         </button>
 
-        <div className="mx-2 h-5 w-px bg-white/10" />
+        <div className="mx-2 h-5 w-px bg-studio-700" />
 
         <button
           className={iconButtonClass(activeTool === 'select')}
@@ -112,14 +111,14 @@ export function FloatingToolbar({
           </svg>
         </button>
 
-        <button className={iconButtonClass()} title="Cut selected nodes" onClick={onCutSelection} type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-            <circle cx="6" cy="6" r="3" />
-            <circle cx="6" cy="18" r="3" />
-            <line x1="20" y1="4" x2="8.12" y2="15.88" />
-            <line x1="14.47" y1="14.48" x2="20" y2="20" />
-            <line x1="8.12" y1="8.12" x2="12" y2="12" />
-          </svg>
+        <button
+          className={iconButtonClass(activeTool === 'disconnect')}
+          title="Disconnect mode"
+          onClick={() => onSetTool('disconnect')}
+          aria-pressed={activeTool === 'disconnect'}
+          type="button"
+        >
+          <Unlink2 className="h-4 w-4" />
         </button>
 
         <button
@@ -129,16 +128,10 @@ export function FloatingToolbar({
           aria-pressed={activeTool === 'draw'}
           type="button"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-            <path d="M12 19l7-7 3 3-7 7-3-3z" />
-            <path d="M18 13l-1.5-1.5" />
-            <circle cx="2" cy="22" r="1" />
-            <path d="M14 14l-8.5 8.5" />
-            <path d="M3.5 20.5a2 2 0 0 1 2-2h2" />
-          </svg>
+          <Hand className="h-4 w-4" />
         </button>
 
-        <div className="mx-2 h-5 w-px bg-white/10" />
+        <div className="mx-2 h-5 w-px bg-studio-700" />
 
         <button className={iconButtonClass()} title="Undo" onClick={onUndo} disabled={!canUndo} type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
@@ -156,10 +149,10 @@ export function FloatingToolbar({
       </div>
 
       {menuOpen ? (
-        <div className="pointer-events-auto mt-2 w-[280px] rounded-lg border border-white/10 bg-ink-900 p-3 shadow-panel">
-          <div className="text-sm font-medium text-white">Add node</div>
+        <div className="pointer-events-auto mt-2 w-[320px] rounded-xl border border-studio-700 bg-studio-900 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.4)]">
+          <div className="text-sm font-semibold text-white">Add node</div>
 
-          <div className="mt-3 flex items-center gap-2 rounded-md border border-white/10 bg-ink-950 px-2">
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-studio-700 bg-studio-950 px-2">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="h-4 w-4 text-zinc-500">
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -176,12 +169,12 @@ export function FloatingToolbar({
 
           {identityItems.length > 0 ? (
             <>
-              <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-400/70">Identity</div>
+              <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-300/80">Identity</div>
               <div className="mt-2 grid gap-1">
                 {identityItems.map((item) => (
                   <button
                     key={item.type}
-                    className="flex min-h-9 items-center justify-between rounded-md border border-transparent bg-transparent px-2.5 text-left text-xs text-zinc-300 transition-colors duration-200 hover:bg-violet-500/10 hover:text-white"
+                    className="flex min-h-9 items-center justify-between rounded-md border border-transparent bg-transparent px-2.5 text-left text-xs text-zinc-300 transition-colors duration-200 hover:border-violet-500/20 hover:bg-violet-500/10 hover:text-white"
                     onClick={() => handleSelectNodeType(item.type)}
                     type="button"
                   >
@@ -200,7 +193,7 @@ export function FloatingToolbar({
                 {basicItems.map((item) => (
                   <button
                     key={item.type}
-                    className="flex min-h-9 items-center justify-between rounded-md border border-transparent bg-transparent px-2.5 text-left text-xs text-zinc-300 transition-colors duration-200 hover:bg-white/10 hover:text-white"
+                    className="flex min-h-9 items-center justify-between rounded-md border border-transparent bg-transparent px-2.5 text-left text-xs text-zinc-300 transition-colors duration-200 hover:border-white/10 hover:bg-white/5 hover:text-white"
                     onClick={() => handleSelectNodeType(item.type)}
                     type="button"
                   >
@@ -219,7 +212,7 @@ export function FloatingToolbar({
                 {mediaItems.map((item) => (
                   <button
                     key={item.type}
-                    className="flex min-h-9 items-center justify-between rounded-md border border-transparent bg-transparent px-2.5 text-left text-xs text-zinc-300 transition-colors duration-200 hover:bg-white/10 hover:text-white"
+                    className="flex min-h-9 items-center justify-between rounded-md border border-transparent bg-transparent px-2.5 text-left text-xs text-zinc-300 transition-colors duration-200 hover:border-white/10 hover:bg-white/5 hover:text-white"
                     onClick={() => handleSelectNodeType(item.type)}
                     type="button"
                   >

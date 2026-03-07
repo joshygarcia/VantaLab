@@ -47,8 +47,8 @@ export function UserButton({ isCollapsed }: { isCollapsed?: boolean }) {
 
     if (loading) {
         return (
-            <div className={`mb-3 rounded-lg border border-white/5 bg-ink-900 p-2 ${isCollapsed ? 'flex justify-center' : ''}`}>
-                <div className="h-8 w-8 animate-pulse rounded-full bg-white/10" />
+            <div className={`mb-3 rounded-xl border border-studio-700 bg-studio-850/90 p-2 ${isCollapsed ? 'flex justify-center' : ''}`}>
+                <div className="h-8 w-8 animate-pulse rounded-full bg-studio-700/70" />
             </div>
         );
     }
@@ -58,7 +58,7 @@ export function UserButton({ isCollapsed }: { isCollapsed?: boolean }) {
             <div className="mb-3">
                 <button
                     onClick={handleSignIn}
-                    className={`flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-500 ${isCollapsed ? 'p-2' : ''}`}
+                    className={`flex w-full items-center justify-center gap-2 rounded-lg border border-studio-gold bg-studio-gold px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 ${isCollapsed ? 'p-2' : ''}`}
                     title="Sign in with Google"
                 >
                     <LogIn size={16} />
@@ -69,26 +69,26 @@ export function UserButton({ isCollapsed }: { isCollapsed?: boolean }) {
     }
 
     return (
-        <div className={`mb-3 overflow-hidden rounded-lg border border-white/5 bg-ink-900 ${isCollapsed ? 'p-1' : 'p-2'}`}>
+        <div className={`mb-3 overflow-hidden rounded-xl border border-studio-700 bg-studio-850/90 ${isCollapsed ? 'p-1' : 'p-2'}`}>
             <div className={`flex items-center gap-2 ${isCollapsed ? 'justify-center' : ''}`}>
                 {user.user_metadata?.avatar_url ? (
                     <img
                         src={user.user_metadata.avatar_url}
                         alt="Avatar"
-                        className="h-8 w-8 shrink-0 rounded-full bg-ink-800 object-cover"
+                        className="h-8 w-8 shrink-0 rounded-full border border-studio-700 bg-studio-900 object-cover"
                     />
                 ) : (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink-800 text-slate-400">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-studio-700 bg-studio-900 text-zinc-400">
                         <UserIcon size={16} />
                     </div>
                 )}
 
                 {!isCollapsed && (
                     <div className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-xs font-semibold text-white">
+                        <span className="truncate text-xs font-semibold text-studio-cream">
                             {user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'}
                         </span>
-                        <span className="truncate text-[10px] text-slate-400">
+                        <span className="truncate text-[10px] text-zinc-500">
                             {user.email}
                         </span>
                     </div>
@@ -97,7 +97,7 @@ export function UserButton({ isCollapsed }: { isCollapsed?: boolean }) {
                 {!isCollapsed && (
                     <button
                         onClick={handleSignOut}
-                        className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-white/5 hover:text-white"
+                        className="shrink-0 rounded-lg border border-transparent p-1 text-zinc-500 transition hover:border-studio-700 hover:bg-studio-900 hover:text-studio-cream"
                         title="Sign out"
                     >
                         <LogOut size={16} />
@@ -108,7 +108,7 @@ export function UserButton({ isCollapsed }: { isCollapsed?: boolean }) {
             {isCollapsed && (
                 <button
                     onClick={handleSignOut}
-                    className="mt-2 flex w-full items-center justify-center rounded p-1 text-slate-400 transition hover:bg-white/5 hover:text-white"
+                    className="mt-2 flex w-full items-center justify-center rounded-lg border border-transparent p-1 text-zinc-500 transition hover:border-studio-700 hover:bg-studio-900 hover:text-studio-cream"
                     title="Sign out"
                 >
                     <LogOut size={14} />

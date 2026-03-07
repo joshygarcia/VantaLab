@@ -5,10 +5,20 @@ import { useMemo, useState } from 'react';
 import { useProjectContext } from '@/components/projects/project-context';
 import { createProjectItem, createProjectSpace, nowIso } from '@/lib/projects';
 import { FolderGit2, Plus, Search, Trash2, ArrowRight, Boxes, X, LayoutGrid } from 'lucide-react';
+import { StudioPageShell } from '@/components/studio/StudioPageShell';
+import { STUDIO_PANEL_CLASS, STUDIO_PANEL_MUTED_CLASS } from '@/components/studio/StudioSection';
+import {
+  studioGhostButtonClass,
+  studioInputClass,
+  studioKickerClass,
+  studioPrimaryButtonClass,
+  studioSecondaryButtonClass,
+  studioStatusClass
+} from '@/components/studio/StudioControls';
+import { StudioStat } from '@/components/studio/StudioStat';
 
-const panelClass = 'rounded-2xl border border-white/5 bg-ink-950/40 backdrop-blur-md shadow-2xl';
-const fieldClass =
-  'h-10 w-full rounded-xl border border-white/5 bg-ink-900 px-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300/50';
+const panelClass = STUDIO_PANEL_CLASS;
+const fieldClass = studioInputClass;
 
 export default function ProjectsPage() {
   const { projects, setProjects, activeSelection, setActiveSelection } = useProjectContext();
@@ -102,81 +112,74 @@ export default function ProjectsPage() {
   };
 
   return (
-    <main className="min-h-full bg-[radial-gradient(circle_at_18%_16%,rgba(255,255,255,0.02),transparent_45%),linear-gradient(170deg,#000000_0%,#09090b_62%,#000000_100%)] p-4 md:p-8 text-zinc-100">
-      <div className="max-w-7xl mx-auto flex flex-col gap-6">
+    <StudioPageShell>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <header className={`${panelClass} flex flex-wrap items-end justify-between gap-6 p-6 md:p-8`}>
           <div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-300">
-              <FolderGit2 className="w-3.5 h-3.5" />
+            <span className={studioKickerClass}>
+              <FolderGit2 className="h-3.5 w-3.5" />
               Studio Portfolio
             </span>
-            <h1 className="mt-4 font-display text-4xl md:text-5xl tracking-tight text-zinc-100">Projects</h1>
+            <h1 className="mt-4 text-3xl font-bold tracking-tight text-white md:text-4xl">Projects</h1>
             <p className="mt-2 max-w-2xl text-sm text-zinc-400">
               Create isolated project environments so workflows, spaces, and generation runs stay context-true.
             </p>
           </div>
 
-          <div className="flex flex-col items-end">
-            <strong className="block text-4xl font-display text-zinc-100">{projects.length}</strong>
-            <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Active Projects</span>
-          </div>
+          <StudioStat
+            label="Active Projects"
+            value={projects.length.toLocaleString()}
+            className="w-full max-w-[220px]"
+          />
         </header>
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="relative w-full max-w-md flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
             <input
               type="text"
-              className="h-10 w-full rounded-xl border border-white/5 bg-ink-900 pl-9 pr-4 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300/50 shadow-sm"
+              className={`${fieldClass} pl-9 pr-4`}
               placeholder="Search projects..."
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowCreate(!showCreate)}
-            className="h-10 rounded-xl bg-white px-4 text-sm font-semibold text-black transition-all hover:bg-zinc-200 flex items-center gap-2 shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
+          <button type="button" onClick={() => setShowCreate(!showCreate)} className={studioPrimaryButtonClass}>
+            <Plus className="h-4 w-4" />
             <span className="hidden sm:inline">New Project</span>
           </button>
         </div>
 
-        {status && (
-          <div className="px-3 py-2 text-xs font-medium text-lime-400 bg-lime-400/10 border border-lime-400/20 rounded-lg inline-flex self-start">
-            {status}
-          </div>
-        )}
+        {status ? <div className={`${studioStatusClass} inline-flex self-start`}>{status}</div> : null}
 
-        {showCreate && (
-          <section className={`${panelClass} p-5 md:p-6 animate-in fade-in slide-in-from-top-2 duration-300`}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
-                <LayoutGrid className="w-4 h-4" />
+        {showCreate ? (
+          <section className={`${panelClass} animate-in fade-in slide-in-from-top-2 p-5 duration-300 md:p-6`}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+                <LayoutGrid className="h-4 w-4" />
                 Create New Project
               </h3>
-              <button onClick={() => setShowCreate(false)} className="text-zinc-500 hover:text-zinc-300 transition-colors">
-                <X className="w-4 h-4" />
+              <button type="button" onClick={() => setShowCreate(false)} className={studioGhostButtonClass}>
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-[1fr,1fr,auto] items-end">
+            <div className="grid items-end gap-4 md:grid-cols-[1fr,1fr,auto]">
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Project Name</label>
+                <label className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Project Name</label>
                 <input
                   id="project-name"
                   type="text"
                   value={projectName}
                   onChange={(event) => setProjectName(event.target.value)}
-                  placeholder="Client launch, Seasonal campaign..."
+                  placeholder="Client launch, seasonal campaign..."
                   className={fieldClass}
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Description (optional)</label>
+                <label className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Description (optional)</label>
                 <input
                   id="project-description"
                   type="text"
@@ -187,48 +190,47 @@ export default function ProjectsPage() {
                 />
               </div>
 
-              <button
-                type="button"
-                className="h-10 rounded-xl bg-white px-6 text-sm font-semibold text-black transition-all hover:bg-zinc-200 flex items-center justify-center gap-2 shadow-sm"
-                onClick={handleCreateProject}
-              >
+              <button type="button" className={studioPrimaryButtonClass} onClick={handleCreateProject}>
                 Create
               </button>
             </div>
           </section>
-        )}
+        ) : null}
 
-        <section className="grid gap-4 lg:grid-cols-2 lg:gap-6 items-start">
+        <section className="grid items-start gap-4 lg:grid-cols-2 lg:gap-6">
           {filteredProjects.map((project) => (
-            <article key={project.id} className={`${panelClass} group flex flex-col p-5 md:p-6 transition-all hover:border-white/10`}>
+            <article
+              key={project.id}
+              className={`${STUDIO_PANEL_MUTED_CLASS} group flex flex-col p-5 transition-all hover:border-studio-600 md:p-6`}
+            >
               <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-xl font-medium text-zinc-100 truncate pr-4">{project.name}</h2>
-                  <p className="mt-1.5 text-sm text-zinc-400 line-clamp-2">{project.description || 'No description provided.'}</p>
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate pr-4 text-xl font-medium text-studio-cream">{project.name}</h2>
+                  <p className="mt-1.5 line-clamp-2 text-sm text-zinc-400">{project.description || 'No description provided.'}</p>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
-                    className="h-8 rounded-lg bg-white/5 border border-white/5 px-2.5 text-xs font-semibold text-zinc-300 hover:bg-white/10 hover:text-white flex items-center gap-1.5 transition-colors"
+                    className={`${studioSecondaryButtonClass} h-8 px-2.5 text-xs`}
                     onClick={() => handleAddSpace(project.id)}
                   >
-                    <Plus className="w-3.5 h-3.5" /> Space
+                    <Plus className="h-3.5 w-3.5" /> Space
                   </button>
                   <button
                     type="button"
-                    className="h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 px-2.5 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 flex items-center gap-1.5 transition-colors"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-2.5 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20"
                     onClick={() => handleDeleteProject(project.id)}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
 
-              <div className="mt-6 border-t border-white/5 pt-5">
-                <h3 className="mb-4 text-[10px] uppercase font-semibold text-zinc-500 tracking-wider flex items-center gap-2">
-                  <Boxes className="w-3.5 h-3.5" />
-                  Project Spaces ({project.spaces.length})
+              <div className="mt-6 border-t border-studio-700/80 pt-5">
+                <h3 className="mb-4 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                  <Boxes className="h-3.5 w-3.5" />
+                  Project Canvases ({project.spaces.length})
                 </h3>
 
                 <div className="flex flex-col gap-2">
@@ -239,19 +241,33 @@ export default function ProjectsPage() {
                     return (
                       <div
                         key={space.id}
-                        className={`group/space flex items-center justify-between rounded-xl border p-3 md:p-4 transition-colors ${isActiveSpace ? 'border-lime-400/30 bg-lime-400/5' : 'border-white/5 bg-ink-900/40 hover:bg-white/5 hover:border-white/10'}`}
+                        className={`group/space flex items-center justify-between rounded-xl border p-3 transition-colors md:p-4 ${
+                          isActiveSpace
+                            ? 'border-studio-600/70 bg-studio-800/80'
+                            : 'border-studio-700 bg-studio-900/70 hover:border-studio-600 hover:bg-studio-800/75'
+                        }`}
                       >
                         <div className="flex flex-col">
-                          <span className={`text-sm font-medium ${isActiveSpace ? 'text-lime-400' : 'text-zinc-200 group-hover/space:text-white transition-colors'}`}>{space.name}</span>
-                          <span className="text-xs text-zinc-500 font-mono mt-0.5">{space.id}</span>
+                          <span
+                            className={`text-sm font-medium transition-colors ${
+                              isActiveSpace ? 'text-studio-cream' : 'text-zinc-200 group-hover/space:text-studio-cream'
+                            }`}
+                          >
+                            {space.name}
+                          </span>
+                          <span className="mt-0.5 font-mono text-xs text-zinc-500">{space.id}</span>
                         </div>
 
                         <Link
                           href={`/canvas/${space.id}`}
-                          className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition-all ${isActiveSpace ? 'bg-lime-400 text-black shadow-[0_0_15px_rgba(163,230,53,0.3)] hover:brightness-110' : 'bg-white/5 text-zinc-400 hover:bg-white border border-transparent hover:border-white/20 hover:text-black hover:shadow-lg hover:scale-105'}`}
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition-all ${
+                            isActiveSpace
+                              ? 'border border-studio-600 bg-studio-800 text-studio-cream shadow-[0_0_16px_rgba(255,255,255,0.16)] hover:border-zinc-400 hover:bg-studio-800/90'
+                              : 'border border-studio-700 bg-studio-900 text-zinc-400 hover:border-studio-600 hover:bg-studio-800 hover:text-studio-cream'
+                          }`}
                           onClick={() => setActiveSelection(project.id, space.id)}
                         >
-                          <ArrowRight className="w-4 h-4" />
+                          <ArrowRight className="h-4 w-4" />
                         </Link>
                       </div>
                     );
@@ -262,6 +278,6 @@ export default function ProjectsPage() {
           ))}
         </section>
       </div>
-    </main>
+    </StudioPageShell>
   );
 }
