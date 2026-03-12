@@ -85,13 +85,16 @@ type ExecuteRequest = {
   parameters: {
     prompt: string;
     referenceImageUrl?: string;
+    referenceVideoUrl?: string;
     aspectRatio?: string;
     resolution?: string;
     outputFormat?: 'png' | 'jpg';
     amount?: number;
     duration?: string;
-    mode?: 'std' | 'pro';
+    mode?: string;
     sound?: boolean;
+    characterOrientation?: 'image' | 'video';
+    reasoningEffort?: 'low' | 'high';
     multiShots?: boolean;
     multiPrompt?: Array<{ prompt: string; duration: number }>;
     klingElements?: Array<{
@@ -135,6 +138,7 @@ type JobResponse = {
   status: 'queued' | 'processing' | 'succeeded' | 'failed';
   mediaUrl?: string;
   resultUrls?: string[];
+  textOutput?: string;
   error?: string;
 };
 

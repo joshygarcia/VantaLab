@@ -1,5 +1,16 @@
 import { MainNode, type BaseNodeData } from './MainNode';
 import { calculateWorkflowCreditCost } from '../workflow-credit-cost';
+import {
+  DEFAULT_IMAGE_MODEL,
+  IMAGE_MODEL_OPTIONS,
+  IMAGE_RESOLUTION_OPTIONS,
+  OUTPUT_FORMAT_OPTIONS,
+  WIDE_ASPECT_RATIO_OPTIONS,
+  applyNodeUiSchemaToControls,
+  getControlPrefix,
+  getImageNodeUiSchema,
+  normalizeSchemaSelectValue
+} from '../kie-model-catalog';
 
 type ImageGeneratorNodeProps = {
   id: string;
@@ -37,11 +48,8 @@ export function ImageGeneratorNode({ id, data, isConnectable, selected = false }
     normalizedControls.push({
       type: 'select',
       id: `model_${id}`,
-      value: 'nano-banana-pro',
-      options: [
-        { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
-        { label: 'Z-Image', value: 'z-image' }
-      ]
+      value: DEFAULT_IMAGE_MODEL,
+      options: [...IMAGE_MODEL_OPTIONS]
     });
   }
 
@@ -50,13 +58,7 @@ export function ImageGeneratorNode({ id, data, isConnectable, selected = false }
       type: 'select',
       id: `aspect_${id}`,
       value: '1:1',
-      options: [
-        { label: '1:1', value: '1:1' },
-        { label: '4:3', value: '4:3' },
-        { label: '3:4', value: '3:4' },
-        { label: '16:9', value: '16:9' },
-        { label: '9:16', value: '9:16' }
-      ]
+      options: [...WIDE_ASPECT_RATIO_OPTIONS]
     });
   }
 
@@ -65,25 +67,7 @@ export function ImageGeneratorNode({ id, data, isConnectable, selected = false }
       type: 'select',
       id: `res_${id}`,
       value: '1K',
-      options: [
-        { label: '1K', value: '1K' },
-        { label: '2K', value: '2K' },
-        { label: '4K', value: '4K' }
-      ]
-    });
-  }
-
-  if (!hasControl(normalizedControls, 'amount_')) {
-    normalizedControls.push({
-      type: 'select',
-      id: `amount_${id}`,
-      value: '1',
-      options: [
-        { label: 'x1', value: '1' },
-        { label: 'x2', value: '2' },
-        { label: 'x3', value: '3' },
-        { label: 'x4', value: '4' }
-      ]
+      options: [...IMAGE_RESOLUTION_OPTIONS]
     });
   }
 
@@ -92,26 +76,26 @@ export function ImageGeneratorNode({ id, data, isConnectable, selected = false }
       type: 'select',
       id: `outfmt_${id}`,
       value: 'png',
-      options: [
-        { label: 'PNG', value: 'png' },
-        { label: 'JPG', value: 'jpg' }
-      ]
+      options: [...OUTPUT_FORMAT_OPTIONS]
     });
   }
 
-  const readSelectValue = (prefix: string, fallback: string) => {
+  const readRawSelectValue = (prefix: string) => {
     const control = normalizedControls.find((entry) => entry.type === 'select' && entry.id.startsWith(prefix));
     if (control?.type === 'select' && typeof control.value === 'string' && control.value.trim().length > 0) {
       return control.value;
     }
-    return fallback;
+    return undefined;
   };
 
-  const amountValue = Number.parseInt(readSelectValue('amount_', '1'), 10);
-  const creditCost = calculateWorkflowCreditCost(readSelectValue('model_', 'nano-banana-pro'), {
-    aspectRatio: readSelectValue('aspect_', '1:1'),
-    resolution: readSelectValue('res_', '1K'),
-    amount: Number.isFinite(amountValue) && amountValue > 0 ? amountValue : 1
+  const selectedModel = readRawSelectValue('model_') ?? DEFAULT_IMAGE_MODEL;
+  const schema = getImageNodeUiSchema(selectedModel);
+  const schemaControls = applyNodeUiSchemaToControls(normalizedControls, schema) as NonNullable<BaseNodeData['controls']>;
+
+  const creditCost = calculateWorkflowCreditCost(selectedModel, {
+    aspectRatio: normalizeSchemaSelectValue(schema, 'aspect_', readRawSelectValue('aspect_')),
+    resolution: normalizeSchemaSelectValue(schema, 'res_', readRawSelectValue('res_')),
+    amount: 1
   });
 
   const normalizedData: BaseNodeData = {
@@ -122,9 +106,13 @@ export function ImageGeneratorNode({ id, data, isConnectable, selected = false }
     runnable: true,
     creditCost,
     inputs: IMAGE_GENERATOR_INPUTS.map((input) => ({ ...input })),
+    hiddenInputIds: [...schema.hiddenInputIds],
     outputs: IMAGE_GENERATOR_OUTPUTS.map((output) => ({ ...output })),
     preview: data.preview ?? { type: 'placeholder', text: 'Describe the image you want to generate...' },
-    controls: normalizedControls
+    controls: schemaControls.filter((control) => {
+      const prefix = getControlPrefix(control.id);
+      return prefix ? schema.visibleControlPrefixes.includes(prefix) : true;
+    })
   };
 
   return (

@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "node -e \"const path=require('node:path'); const raw=process.env.npm_package_json || process.env.INIT_CWD || process.cwd(); const rootCandidate=raw.endsWith('package.json') ? path.dirname(raw) : raw; const root=rootCandidate.startsWith('\\\\\\\\?\\\\UNC\\\\') ? '\\\\\\\\' + rootCandidate.slice(8) : rootCandidate.startsWith('\\\\\\\\?\\\\') ? rootCandidate.slice(4) : rootCandidate; require(path.join(root, 'scripts', 'dev.cjs')).run()\"",
     "dev:api": "npm run dev --workspace apps/api",
     "dev:web": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/api && npm run build --workspace apps/web"

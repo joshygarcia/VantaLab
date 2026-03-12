@@ -31,6 +31,14 @@ type CustomSpaceItem = {
     createdAt: string;
 };
 
+type CustomSpaceConfig = {
+    ownerWorkspaceId: string;
+    description: string;
+    protection: SpaceProtection;
+    sharedWorkspaceIds: string[];
+    createdAt: string;
+};
+
 type WorkspaceCanvasState = {
     nodes: Record<string, unknown>[];
     edges: Record<string, unknown>[];
@@ -145,29 +153,38 @@ export class WorkspacesService {
         }
     }
 
+    private canAccessCustomSpace(space: CustomSpaceItem, userWorkspaceIds: string[]) {
+        if (userWorkspaceIds.includes(space.ownerWorkspaceId)) {
+            return true;
+        }
+
+        return (
+            space.protection === 'team-shared' &&
+            space.sharedWorkspaceIds.some((workspaceId) => userWorkspaceIds.includes(workspaceId))
+        );
+    }
+
     private async assertSpaceCanvasAccess(spaceId: string, userWorkspaceIds: string[]) {
         if (userWorkspaceIds.includes(spaceId)) {
             return;
         }
 
-        const customSpaces = await this.readCustomSpacesStore();
-        const matchedSpace = Object.values(customSpaces)
-            .flat()
-            .find((item) => item.id === spaceId);
-
-        if (!matchedSpace) {
-            throw new UnauthorizedException('User does not have access to this space');
-        }
-
-        if (userWorkspaceIds.includes(matchedSpace.ownerWorkspaceId)) {
+        const matchedSpace = await this.findCustomSpaceById(spaceId);
+        if (matchedSpace && this.canAccessCustomSpace(matchedSpace, userWorkspaceIds)) {
             return;
         }
 
-        if (
-            matchedSpace.protection === 'team-shared' &&
-            matchedSpace.sharedWorkspaceIds.some((workspaceId) => userWorkspaceIds.includes(workspaceId))
-        ) {
-            return;
+        throw new UnauthorizedException('User does not have access to this space');
+    }
+
+    private async resolveWorkspaceOwnerForSpace(spaceId: string, userWorkspaceIds: string[]) {
+        if (userWorkspaceIds.includes(spaceId)) {
+            return spaceId;
+        }
+
+        const matchedSpace = await this.findCustomSpaceById(spaceId);
+        if (matchedSpace && this.canAccessCustomSpace(matchedSpace, userWorkspaceIds)) {
+            return matchedSpace.ownerWorkspaceId;
         }
 
         throw new UnauthorizedException('User does not have access to this space');
@@ -437,6 +454,169 @@ export class WorkspacesService {
         }
     }
 
+    private normalizeCustomSpaceConfig(
+        workspaceId: string,
+        workspaceName: string,
+        value: unknown
+    ): CustomSpaceItem | null {
+        if (!value) {
+            return null;
+        }
+
+        const parsed = typeof value === 'string'
+            ? (() => {
+                try {
+                    return JSON.parse(value);
+                } catch {
+                    return null;
+                }
+            })()
+            : value;
+
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return null;
+        }
+
+        const rawConfig = parsed as Partial<CustomSpaceConfig> & {
+            ownerWorkspaceId?: unknown;
+            description?: unknown;
+            protection?: unknown;
+            sharedWorkspaceIds?: unknown;
+            createdAt?: unknown;
+        };
+
+        if (
+            typeof rawConfig.ownerWorkspaceId !== 'string' ||
+            typeof rawConfig.description !== 'string' ||
+            typeof rawConfig.createdAt !== 'string'
+        ) {
+            return null;
+        }
+
+        const protectionRaw = typeof rawConfig.protection === 'string' ? rawConfig.protection : 'standard';
+        const protection: SpaceProtection =
+            protectionRaw === 'template-only' ||
+                protectionRaw === 'locked' ||
+                protectionRaw === 'team-shared'
+                ? protectionRaw
+                : 'standard';
+        const sharedWorkspaceIds = Array.isArray(rawConfig.sharedWorkspaceIds)
+            ? rawConfig.sharedWorkspaceIds.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+            : [];
+
+        return {
+            id: workspaceId,
+            ownerWorkspaceId: rawConfig.ownerWorkspaceId,
+            name: workspaceName.trim() || workspaceId,
+            description: rawConfig.description,
+            protection,
+            sharedWorkspaceIds: Array.from(new Set(sharedWorkspaceIds)),
+            createdAt: rawConfig.createdAt
+        };
+    }
+
+    private async readPersistedCustomSpaces(): Promise<Record<string, CustomSpaceItem[]>> {
+        const workspaces = await (this.prisma as any).workspace.findMany({
+            where: {
+                customSpaceConfig: {
+                    not: null
+                }
+            },
+            select: {
+                id: true,
+                name: true,
+                customSpaceConfig: true
+            }
+        }) as Array<{ id: string; name: string; customSpaceConfig?: string | null }>;
+
+        const normalized: Record<string, CustomSpaceItem[]> = {};
+
+        for (const workspace of workspaces) {
+            const item = this.normalizeCustomSpaceConfig(
+                workspace.id,
+                typeof workspace.name === 'string' ? workspace.name : workspace.id,
+                workspace.customSpaceConfig
+            );
+
+            if (!item) {
+                continue;
+            }
+
+            normalized[item.ownerWorkspaceId] = [
+                ...(normalized[item.ownerWorkspaceId] ?? []),
+                item
+            ];
+        }
+
+        for (const [ownerWorkspaceId, items] of Object.entries(normalized)) {
+            normalized[ownerWorkspaceId] = items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        }
+
+        return normalized;
+    }
+
+    private mergeCustomSpaceStores(
+        legacyStore: Record<string, CustomSpaceItem[]>,
+        persistedStore: Record<string, CustomSpaceItem[]>
+    ) {
+        const merged: Record<string, CustomSpaceItem[]> = {};
+        const ownerWorkspaceIds = new Set([
+            ...Object.keys(legacyStore),
+            ...Object.keys(persistedStore)
+        ]);
+
+        for (const ownerWorkspaceId of ownerWorkspaceIds) {
+            const deduped = new Map<string, CustomSpaceItem>();
+            for (const item of legacyStore[ownerWorkspaceId] ?? []) {
+                deduped.set(item.id, item);
+            }
+            for (const item of persistedStore[ownerWorkspaceId] ?? []) {
+                deduped.set(item.id, item);
+            }
+            merged[ownerWorkspaceId] = Array.from(deduped.values())
+                .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        }
+
+        return merged;
+    }
+
+    private async readAllCustomSpaces() {
+        const [legacyStore, persistedStore] = await Promise.all([
+            this.readCustomSpacesStore(),
+            this.readPersistedCustomSpaces()
+        ]);
+
+        return this.mergeCustomSpaceStores(legacyStore, persistedStore);
+    }
+
+    private async findCustomSpaceById(spaceId: string): Promise<CustomSpaceItem | null> {
+        const persistedWorkspace = await (this.prisma as any).workspace.findUnique({
+            where: { id: spaceId },
+            select: {
+                id: true,
+                name: true,
+                customSpaceConfig: true
+            }
+        }) as { id: string; name: string; customSpaceConfig?: string | null } | null;
+
+        const persisted = persistedWorkspace
+            ? this.normalizeCustomSpaceConfig(
+                persistedWorkspace.id,
+                typeof persistedWorkspace.name === 'string' ? persistedWorkspace.name : persistedWorkspace.id,
+                persistedWorkspace.customSpaceConfig
+            )
+            : null;
+
+        if (persisted) {
+            return persisted;
+        }
+
+        const legacyStore = await this.readCustomSpacesStore();
+        return Object.values(legacyStore)
+            .flat()
+            .find((item) => item.id === spaceId) ?? null;
+    }
+
     private isImmutableSpaceProtection(protection: SpaceProtection) {
         return protection === 'template-only' || protection === 'locked';
     }
@@ -549,10 +729,10 @@ export class WorkspacesService {
     }
 
     async getKlingElementsLibrary(id: string, userWorkspaceIds: string[], requesterUserId: string) {
-        this.assertWorkspaceAccess(id, userWorkspaceIds);
+        const libraryWorkspaceId = await this.resolveWorkspaceOwnerForSpace(id, userWorkspaceIds);
 
         const store = await this.readLibraryStore();
-        const items = Array.isArray(store[id]) ? store[id] : [];
+        const items = Array.isArray(store[libraryWorkspaceId]) ? store[libraryWorkspaceId] : [];
         const normalizedItems = await Promise.all(
             items.map(async (item) => {
                 if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -636,7 +816,7 @@ export class WorkspacesService {
     async listCustomSpaces(id: string, userWorkspaceIds: string[]) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
-        const store = await this.readCustomSpacesStore();
+        const store = await this.readAllCustomSpaces();
         const ownItems = Array.isArray(store[id]) ? store[id] : [];
 
         const teamSharedItems = Object.values(store)
@@ -712,12 +892,26 @@ export class WorkspacesService {
         await this.prisma.workspace.upsert({
             where: { id: spaceId },
             update: {
-                name: trimmedName
+                name: trimmedName,
+                customSpaceConfig: JSON.stringify({
+                    ownerWorkspaceId: nextItem.ownerWorkspaceId,
+                    description: nextItem.description,
+                    protection: nextItem.protection,
+                    sharedWorkspaceIds: nextItem.sharedWorkspaceIds,
+                    createdAt: nextItem.createdAt
+                } satisfies CustomSpaceConfig)
             },
             create: {
                 id: spaceId,
                 userId,
-                name: trimmedName
+                name: trimmedName,
+                customSpaceConfig: JSON.stringify({
+                    ownerWorkspaceId: nextItem.ownerWorkspaceId,
+                    description: nextItem.description,
+                    protection: nextItem.protection,
+                    sharedWorkspaceIds: nextItem.sharedWorkspaceIds,
+                    createdAt: nextItem.createdAt
+                } satisfies CustomSpaceConfig)
             }
         });
 
@@ -734,7 +928,7 @@ export class WorkspacesService {
     ) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
-        const store = await this.readCustomSpacesStore();
+        const store = await this.readAllCustomSpaces();
         const existingItems = Array.isArray(store[id]) ? store[id] : [];
         const existing = existingItems.find((item) => item.id === spaceId);
 
@@ -769,6 +963,19 @@ export class WorkspacesService {
 
         store[id] = existingItems.map((item) => item.id === spaceId ? updatedItem : item);
         await this.writeCustomSpacesStore(store);
+        await this.prisma.workspace.updateMany({
+            where: { id: spaceId },
+            data: {
+                name: updatedItem.name,
+                customSpaceConfig: JSON.stringify({
+                    ownerWorkspaceId: updatedItem.ownerWorkspaceId,
+                    description: updatedItem.description,
+                    protection: updatedItem.protection,
+                    sharedWorkspaceIds: updatedItem.sharedWorkspaceIds,
+                    createdAt: updatedItem.createdAt
+                } satisfies CustomSpaceConfig)
+            }
+        });
 
         return {
             item: updatedItem
@@ -782,7 +989,7 @@ export class WorkspacesService {
     ) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
-        const store = await this.readCustomSpacesStore();
+        const store = await this.readAllCustomSpaces();
         const existingItems = Array.isArray(store[id]) ? store[id] : [];
         const existing = existingItems.find((item) => item.id === spaceId);
 
@@ -798,6 +1005,12 @@ export class WorkspacesService {
 
         store[id] = nextItems;
         await this.writeCustomSpacesStore(store);
+        await this.prisma.workspace.updateMany({
+            where: { id: spaceId },
+            data: {
+                customSpaceConfig: null
+            }
+        });
 
         return {
             success: true,

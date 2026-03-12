@@ -14,6 +14,7 @@ export type NodeData = Partial<BaseNodeData> & {
   label?: string;
   status?: NodeStatus;
   mediaUrl?: string;
+  outputText?: string;
   type?: 'video' | 'image';
   text?: string;
   onChange?: (val: string) => void;
@@ -34,6 +35,7 @@ type CanvasState = {
   clearNodeResultMedia: (nodeId: string) => void;
   appendNodeResultMedia: (nodeId: string, item: ResultMediaItem) => void;
   setNodeResultPreview: (nodeId: string, resultIndex: number) => void;
+  setNodeOutputText: (nodeId: string, outputText: string) => void;
   deleteNode: (nodeId: string) => void;
   duplicateNode: (nodeId: string, x?: number, y?: number) => void;
 };
@@ -117,7 +119,7 @@ export const useCanvasStore = create<CanvasState>((set) => ({
         if (mediaUrl) {
           preview = { type: node.data.icon === 'image' ? 'image' : 'video', url: mediaUrl };
         } else if (status === 'processing') {
-          preview = { type: 'placeholder', text: 'Generating media...' };
+          preview = { type: 'placeholder', text: 'Running node...' };
         }
         return { ...node, data: { ...node.data, status, preview } };
       })
@@ -236,6 +238,24 @@ export const useCanvasStore = create<CanvasState>((set) => ({
           }
         };
       })
+    })),
+  setNodeOutputText: (nodeId, outputText) =>
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                outputText,
+                preview: {
+                  type: 'placeholder',
+                  text: outputText
+                }
+              }
+            }
+          : node
+      )
     })),
   deleteNode: (nodeId) =>
     set((state) => {

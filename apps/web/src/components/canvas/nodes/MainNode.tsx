@@ -1,9 +1,10 @@
-import { AlignLeft, Check, ChevronDown, FileVideo, Image as ImageIcon, Link2, LoaderCircle, Play, Settings, Trash2, Type, X, Zap } from 'lucide-react';
+import { AlignLeft, Check, ChevronDown, FileVideo, Image as ImageIcon, Library, Link2, LoaderCircle, Play, Settings, Trash2, Type, X, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Handle, NodeResizer, Position } from 'reactflow';
 
 import { useCanvasStore } from '@/store/canvas-store';
 import { AddNodeType } from '../add-node-menu';
+import type { ElementLibrarySelectionItem } from '../element-library-selection';
 
 export type BaseNodeData = {
   title?: string;
@@ -14,8 +15,10 @@ export type BaseNodeData = {
   creditCost?: number;
   type?: 'video' | 'image';
   text?: string;
+  outputText?: string;
   mediaUrl?: string;
   inputs?: Array<{ id: string; label?: string; type?: string }>;
+  hiddenInputIds?: string[];
   outputs?: Array<{ id: string; label?: string; type?: string }>;
   controls?: Array<
     | { type: 'textarea'; id: string; label?: string; value: string; placeholder?: string }
@@ -27,6 +30,8 @@ export type BaseNodeData = {
     | { type: 'placeholder'; text: string };
   resultMedia?: Array<{ type: 'image' | 'video'; url: string }>;
   selectedResultIndex?: number;
+  supportsElementLibrary?: boolean;
+  attachedElementLibraryItems?: ElementLibrarySelectionItem[];
 };
 
 type MainNodeProps = {
@@ -41,6 +46,8 @@ type RunNodeMode = 'node-only' | 'chain-all' | 'upstream-and-self' | 'self-and-d
 const RUN_NODE_EVENT = 'persona:run-node';
 const QUICK_CONNECT_NODE_EVENT = 'persona:quick-connect-node';
 const DELETE_NODE_EVENT = 'persona:delete-node';
+const OPEN_ELEMENT_LIBRARY_NODE_EVENT = 'persona:open-node-element-library';
+const REMOVE_ELEMENT_LIBRARY_ITEM_EVENT = 'persona:remove-node-element-library-item';
 
 const RUN_MODE_OPTIONS: Array<{ value: RunNodeMode; label: string }> = [
   { value: 'node-only', label: 'Run this node' },
@@ -51,7 +58,9 @@ const RUN_MODE_OPTIONS: Array<{ value: RunNodeMode; label: string }> = [
 
 const QUICK_CONNECT_OPTIONS: Array<{ type: AddNodeType; label: string }> = [
   { type: 'text-prompt', label: 'Text Prompt' },
-  { type: 'image-generator', label: 'Image Generator' }
+  { type: 'image-generator', label: 'Image Generator' },
+  { type: 'video-generator', label: 'Video Generator' },
+  { type: 'agent', label: 'Agent' }
 ];
 
 const ICONS = {
@@ -207,6 +216,7 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
   const title = data.title || data.label || 'Node';
   const showConnectionIcons = selected || isCursorNear;
   const inputs = data.inputs ?? [];
+  const hiddenInputIds = new Set(data.hiddenInputIds ?? []);
   const outputs = data.outputs ?? [];
   const textControls = (data.controls ?? []).filter((c) => c.type === 'textarea');
   const selectControls = (data.controls ?? []).filter((c) => c.type === 'select');
@@ -220,6 +230,8 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
   const extraText = textControls.slice(1);
   const isTextPromptLayout = data.icon === 'text' && inputs.length === 0;
   const canRunNode = data.runnable === true;
+  const canAttachElementLibrary = data.supportsElementLibrary === true;
+  const attachedElementLibraryItems = data.attachedElementLibraryItems ?? [];
   const status = data.status ?? 'idle';
   const isProcessing = status === 'processing';
   const isFailed = status === 'failed';
@@ -363,6 +375,32 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
 
             <div className="h-5 w-px bg-white/10" />
 
+            {canAttachElementLibrary ? (
+              <>
+                <button
+                  type="button"
+                  className="nodrag inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-zinc-100 transition hover:bg-white/10"
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent(OPEN_ELEMENT_LIBRARY_NODE_EVENT, {
+                        detail: { nodeId: id }
+                      })
+                    )
+                  }
+                >
+                  <Library size={13} />
+                  <span>Elements</span>
+                  {attachedElementLibraryItems.length > 0 ? (
+                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-white/10 px-1.5 text-[10px]">
+                      {attachedElementLibraryItems.length}
+                    </span>
+                  ) : null}
+                </button>
+
+                <div className="h-5 w-px bg-white/10" />
+              </>
+            ) : null}
+
             <button
               type="button"
               className="nodrag inline-flex h-8 w-8 items-center justify-center rounded-full text-rose-300 transition hover:bg-rose-500/20 hover:text-rose-200"
@@ -425,6 +463,7 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
         {inputs.map((input, index) => {
           const top = `${((index + 1) * 100) / (inputs.length + 1)}%`;
           const connected = isConnected('input', input.id);
+          const hidden = hiddenInputIds.has(input.id);
           const showPort = showConnectionIcons || connected;
           const signature = `${input.id} ${input.label ?? ''} ${input.type ?? ''}`.toLowerCase();
           return (
@@ -435,15 +474,21 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
                 id={input.id}
                 isConnectable={isConnectable}
                 style={{ left: -42, top }}
-                className={portHandleClass(connected, showPort)}
+                className={
+                  hidden
+                    ? '!pointer-events-none !h-5 !w-5 !border-none !bg-transparent opacity-0'
+                    : portHandleClass(connected, showPort)
+                }
               />
-              <div
-                style={{ left: '-42px', top }}
-                className={portBadgeClass(showPort, connected, 'left')}
-                aria-hidden="true"
-              >
-                {getPortIcon(signature)}
-              </div>
+              {!hidden ? (
+                <div
+                  style={{ left: '-42px', top }}
+                  className={portBadgeClass(showPort, connected, 'left')}
+                  aria-hidden="true"
+                >
+                  {getPortIcon(signature)}
+                </div>
+              ) : null}
             </div>
           );
         })}
@@ -594,6 +639,23 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
                   />
                 ))}
 
+                {selected && canAttachElementLibrary ? (
+                  <button
+                    type="button"
+                    className="nodrag inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-black/30 px-3 text-xs font-semibold text-zinc-100 transition hover:border-white/20 hover:bg-black/45"
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent(OPEN_ELEMENT_LIBRARY_NODE_EVENT, {
+                          detail: { nodeId: id }
+                        })
+                      )
+                    }
+                  >
+                    <Library size={13} />
+                    <span>{attachedElementLibraryItems.length > 0 ? 'Edit elements' : 'Add elements'}</span>
+                  </button>
+                ) : null}
+
                 {canRunNode ? (
                   <button
                     type="button"
@@ -610,6 +672,48 @@ export function MainNode({ id, data, isConnectable, selected = false }: MainNode
                     <Zap size={16} />
                   </button>
                 ) : null}
+              </div>
+            ) : null}
+
+            {selected && canAttachElementLibrary && attachedElementLibraryItems.length > 0 ? (
+              <div className="mt-3 flex flex-col gap-2">
+                {attachedElementLibraryItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/40 px-3 py-2.5 backdrop-blur-sm"
+                  >
+                    {item.imageUrls[0] ? (
+                      <img
+                        src={item.imageUrls[0]}
+                        alt={item.name}
+                        className="h-10 w-10 rounded-xl object-cover"
+                        draggable={false}
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 text-zinc-500">
+                        <Library size={14} />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-white">{item.name}</p>
+                      <p className="truncate text-[11px] text-zinc-400">{item.description}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="nodrag inline-flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition hover:bg-white/10 hover:text-white"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent(REMOVE_ELEMENT_LIBRARY_ITEM_EVENT, {
+                            detail: { nodeId: id, itemId: item.id }
+                          })
+                        )
+                      }
+                      aria-label={`Remove ${item.name}`}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
               </div>
             ) : null}
           </div>

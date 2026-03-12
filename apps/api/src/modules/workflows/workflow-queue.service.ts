@@ -5,6 +5,8 @@ import { PrismaService } from '../database/prisma.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { BillingService } from '../billing/billing.service';
 import { calculateWorkflowCreditCost } from './workflow-credit-cost';
+import { buildKieApiRequest } from './kie-request-builders';
+import { isAgentModel } from './kie-model-catalog';
 
 type WorkflowQueuePayload = {
   workflowJobId: string;
@@ -15,6 +17,7 @@ type WorkflowJobUpdate = {
   status: 'processing' | 'succeeded' | 'failed';
   mediaUrl?: string | null;
   resultUrls?: string[];
+  textOutput?: string | null;
   error?: string | null;
 };
 
@@ -38,14 +41,20 @@ type StoredWorkflowParameters = {
   selections?: Record<string, string>;
   generatedPromptSet?: GeminiPromptSet;
   generatedMediaUrls?: string[];
+  generatedText?: string;
   referenceImageUrl?: string;
+  referenceVideoUrl?: string;
   aspectRatio?: string;
   resolution?: string;
   outputFormat?: 'png' | 'jpg';
   amount?: number;
   duration?: string;
-  mode?: 'std' | 'pro';
+  mode?: 'std' | 'pro' | '720p' | '1080p' | string;
   sound?: boolean;
+  characterOrientation?: 'image' | 'video' | string;
+  reasoningEffort?: 'low' | 'high' | string;
+  promptTokens?: number;
+  completionTokens?: number;
   multiShots?: boolean;
   multiPrompt?: StoredMultiPromptShot[];
   klingElements?: StoredKlingElement[];
@@ -80,6 +89,33 @@ type GeminiCompletionResponse = {
   error?: {
     message?: string;
   };
+};
+
+type KieChatCompletionResponse = {
+  code?: number;
+  msg?: string;
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+  error?: {
+    message?: string;
+  };
+};
+
+type WorkflowExecutionResult = {
+  mediaUrl?: string;
+  resultUrls?: string[];
+  textOutput?: string;
+  parametersPatch?: Partial<StoredWorkflowParameters>;
+  usageEndpoint?: string;
+  usageCostInCents?: number;
 };
 
 type CharacterPromptKind = 'profile' | 'full-body' | 'sheet';
@@ -658,6 +694,119 @@ export class WorkflowQueueService {
     return data.data.taskId;
   }
 
+  private async executeChatCompletion(
+    endpoint: string,
+    body: Record<string, unknown>,
+    apiKey: string
+  ): Promise<WorkflowExecutionResult> {
+    const response = await fetch(`https://api.kie.ai${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`Kie.ai Chat API error: ${response.status} - ${errBody}`);
+    }
+
+    const payload = (await response.json()) as KieChatCompletionResponse;
+    if (typeof payload.code === 'number' && payload.code !== 200) {
+      throw new Error(payload.msg || payload.error?.message || 'Kie.ai chat completion failed');
+    }
+
+    const textOutput = payload.choices?.[0]?.message?.content?.trim();
+    if (!textOutput) {
+      throw new Error(payload.error?.message || 'Kie.ai chat completion returned empty content');
+    }
+
+    return {
+      textOutput,
+      parametersPatch: {
+        generatedText: textOutput,
+        promptTokens: payload.usage?.prompt_tokens,
+        completionTokens: payload.usage?.completion_tokens
+      },
+      usageEndpoint: endpoint.replace(/^\//, ''),
+      usageCostInCents: 0
+    };
+  }
+
+  private async executeStandardWorkflow(
+    model: string,
+    params: StoredWorkflowParameters,
+    apiKey: string
+  ): Promise<WorkflowExecutionResult> {
+    const { endpoint, body } = buildKieApiRequest({
+      model,
+      parameters: {
+        prompt: params.prompt ?? 'Cinematic default shot',
+        referenceImageUrl: params.referenceImageUrl,
+        referenceVideoUrl: params.referenceVideoUrl,
+        aspectRatio: params.aspectRatio,
+        duration: params.duration,
+        mode: params.mode,
+        outputFormat: params.outputFormat,
+        resolution: params.resolution,
+        sound: params.sound,
+        characterOrientation: params.characterOrientation,
+        reasoningEffort: params.reasoningEffort,
+        multiShots: params.multiShots,
+        multiPrompt: (params.multiPrompt ?? [])
+          .map((shot) => {
+            const prompt = typeof shot.prompt === 'string' ? shot.prompt.trim() : '';
+            if (!prompt) {
+              return null;
+            }
+
+            const duration = Number(shot.duration);
+            return {
+              prompt,
+              duration: Number.isFinite(duration) ? Math.max(1, Math.round(duration)) : 1
+            };
+          })
+          .filter((shot): shot is { prompt: string; duration: number } => shot !== null),
+        klingElements: (params.klingElements ?? [])
+          .map((element) => {
+            const name = typeof element.name === 'string' ? element.name.trim() : '';
+            if (!name) {
+              return null;
+            }
+
+            return {
+              name,
+              description: typeof element.description === 'string' ? element.description.trim() : undefined,
+              elementInputUrls: Array.isArray(element.elementInputUrls) ? element.elementInputUrls : undefined,
+              elementInputVideoUrls: Array.isArray(element.elementInputVideoUrls) ? element.elementInputVideoUrls : undefined
+            };
+          })
+          .filter((element): element is Exclude<typeof element, null> => element !== null)
+      }
+    });
+
+    if (isAgentModel(model)) {
+      return this.executeChatCompletion(endpoint, body, apiKey);
+    }
+
+    const taskId = await this.createUnifiedTask(body, apiKey);
+    const resultUrls = await this.pollUnifiedTaskUrls(taskId, apiKey);
+    const mediaUrl = resultUrls[0];
+
+    if (!mediaUrl) {
+      throw new Error('Task completed without media URLs');
+    }
+
+    return {
+      mediaUrl,
+      resultUrls,
+      usageEndpoint: endpoint.replace(/^\//, ''),
+      usageCostInCents: 0
+    };
+  }
+
   private async generateCharacterPromptsWithGemini(params: StoredWorkflowParameters, apiKey: string): Promise<GeminiPromptSet> {
     const payload = {
       characterName: (params.characterName ?? '').trim() || 'Untitled character',
@@ -865,7 +1014,8 @@ export class WorkflowQueueService {
       const apiKeyRecord = await this.apiKeysService.getNextAvailableKey();
       const apiKey = apiKeyRecord.key;
 
-      let mediaUrl = '';
+      let mediaUrl: string | undefined;
+      let textOutput: string | undefined;
       let params: StoredWorkflowParameters = {};
       if (existing.parameters) {
         try {
@@ -881,9 +1031,15 @@ export class WorkflowQueueService {
         referenceImageUrl = await this.uploadReferenceImage(referenceImageUrl, apiKey);
       }
 
-      let taskId = '';
       let generatedMediaUrls: string[] | null = null;
       let generatedPromptSet: GeminiPromptSet | null = null;
+      let parametersPatch: Partial<StoredWorkflowParameters> = {};
+
+      params = {
+        ...params,
+        prompt: promptText,
+        referenceImageUrl
+      };
 
       if (existing.model === 'character-suite') {
         const selectedImageModel = this.normalizeCharacterImageModel(params.characterImageModel);
@@ -938,8 +1094,11 @@ export class WorkflowQueueService {
         await this.apiKeysService.logUsage(apiKeyRecord.id, `jobs/createTask/${selectedImageModel}-suite`, 0, 200);
 
       } else if (existing.model === 'veo-3.1' || existing.model === 'veo3_fast' || existing.model === 'veo3') {
+        const veoModel = existing.model === 'veo-3.1'
+          ? (params.mode === 'pro' ? 'veo3' : 'veo3_fast')
+          : existing.model;
         const veoInput: Record<string, unknown> = {
-          model: 'veo3_fast', // Using fast for dev iterating speed
+          model: veoModel,
           prompt: promptText,
           aspect_ratio: params.aspectRatio || '16:9'
         };
@@ -964,161 +1123,41 @@ export class WorkflowQueueService {
         const data = await response.json();
         if (data.code !== 200) throw new Error(`Veo API error: ${data.msg}`);
 
-        taskId = data.data.taskId;
-        mediaUrl = await this.pollVeoTask(taskId, apiKey);
+        mediaUrl = await this.pollVeoTask(data.data.taskId, apiKey);
 
         // Log Usage
-        await this.apiKeysService.logUsage(apiKeyRecord.id, 'veo/generate', 25, 200);
+        await this.apiKeysService.logUsage(apiKeyRecord.id, 'veo/generate', 0, 200);
 
       } else {
-        // Unified Market Models
-        let targetedModel = existing.model;
-        if (targetedModel === 'google-nano' || targetedModel === 'nano-banana') {
-          targetedModel = 'nano-banana-pro';
-        }
+        const targetedModel = existing.model === 'nano-banana'
+          ? 'google/nano-banana'
+          : existing.model === 'seedream-5.0-lite'
+            ? 'seedream/5-lite-text-to-image'
+            : existing.model;
 
-        const requestBody: any = {
-          model: targetedModel,
-          input: {
-            prompt: promptText,
-            aspect_ratio: params.aspectRatio || '16:9'
-          }
-        };
+        const executionResult = await this.executeStandardWorkflow(targetedModel, params, apiKey);
+        mediaUrl = executionResult.mediaUrl;
+        generatedMediaUrls = executionResult.resultUrls ?? null;
+        textOutput = executionResult.textOutput;
+        parametersPatch = executionResult.parametersPatch ?? {};
 
-        if (params.resolution) {
-          requestBody.input.resolution = params.resolution;
-        }
-
-        if (targetedModel === 'nano-banana-pro' && params.outputFormat) {
-          requestBody.input.output_format = params.outputFormat;
-        }
-
-        if (referenceImageUrl) {
-          if (targetedModel === 'nano-banana-pro') {
-            requestBody.input.image_input = [referenceImageUrl];
-          }
-
-          if (targetedModel === 'kling-3.0/video') {
-            requestBody.input.image_urls = [referenceImageUrl];
-          }
-        }
-
-        if (targetedModel === 'kling-3.0/video') {
-          requestBody.input.duration = params.duration || '5';
-          requestBody.input.mode = params.mode || 'pro';
-          const multiShotsEnabled = params.multiShots ?? false;
-          requestBody.input.multi_shots = multiShotsEnabled;
-          requestBody.input.sound = multiShotsEnabled ? true : (params.sound ?? false);
-
-          const normalizedKlingElements = (params.klingElements || [])
-            .map((element) => {
-              const name = typeof element.name === 'string' ? element.name.trim() : '';
-              if (!name) {
-                return null;
-              }
-
-              const description = typeof element.description === 'string'
-                ? element.description.trim()
-                : undefined;
-
-              const imageUrls = Array.isArray(element.elementInputUrls)
-                ? element.elementInputUrls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0).slice(0, 4)
-                : [];
-
-              const videoUrls = Array.isArray(element.elementInputVideoUrls)
-                ? element.elementInputVideoUrls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0).slice(0, 1)
-                : [];
-
-              if (imageUrls.length >= 2) {
-                return {
-                  name,
-                  description,
-                  element_input_urls: imageUrls
-                };
-              }
-
-              if (videoUrls.length === 1) {
-                return {
-                  name,
-                  description,
-                  element_input_video_urls: videoUrls
-                };
-              }
-
-              return null;
-            })
-            .filter((element) => element !== null);
-
-          if (normalizedKlingElements.length > 0) {
-            requestBody.input.kling_elements = normalizedKlingElements;
-          }
-
-          if (multiShotsEnabled) {
-            const normalizedMultiPrompt = (params.multiPrompt || [])
-              .map((shot) => {
-                const prompt = typeof shot.prompt === 'string' ? shot.prompt.trim() : '';
-                if (!prompt) {
-                  return null;
-                }
-
-                const shotDuration = Number(shot.duration);
-                const duration = Number.isFinite(shotDuration)
-                  ? Math.min(15, Math.max(1, Math.round(shotDuration)))
-                  : 3;
-
-                return { prompt, duration };
-              })
-              .filter((shot): shot is { prompt: string; duration: number } => shot !== null);
-
-            const boundedMultiPrompt: Array<{ prompt: string; duration: number }> = [];
-            let remainingDuration = 15;
-            for (const shot of normalizedMultiPrompt) {
-              if (remainingDuration <= 0) {
-                break;
-              }
-
-              const boundedDuration = Math.min(remainingDuration, shot.duration);
-              if (boundedDuration <= 0) {
-                continue;
-              }
-
-              boundedMultiPrompt.push({
-                prompt: shot.prompt,
-                duration: boundedDuration
-              });
-              remainingDuration -= boundedDuration;
-            }
-
-            if (boundedMultiPrompt.length > 0) {
-              requestBody.input.multi_prompt = boundedMultiPrompt;
-            } else {
-              const fallbackDuration = Number.parseInt(params.duration || '5', 10);
-              requestBody.input.multi_prompt = [{
-                prompt: promptText,
-                duration: Math.min(15, Math.max(1, Number.isFinite(fallbackDuration) ? fallbackDuration : 5))
-              }];
-            }
-          }
-
-          // When first-frame image is provided, Kling auto-adapts aspect ratio.
-          if (referenceImageUrl) {
-            delete requestBody.input.aspect_ratio;
-          }
-        }
-
-        taskId = await this.createUnifiedTask(requestBody, apiKey);
-        mediaUrl = await this.pollUnifiedTask(taskId, apiKey);
-
-        // Log Usage (Mock cost logic based on model)
-        const mockCost = existing.model.includes('pro') ? 10 : 2;
-        await this.apiKeysService.logUsage(apiKeyRecord.id, `jobs/createTask/${existing.model}`, mockCost, 200);
+        await this.apiKeysService.logUsage(
+          apiKeyRecord.id,
+          executionResult.usageEndpoint ?? `jobs/createTask/${targetedModel}`,
+          executionResult.usageCostInCents ?? 0,
+          200
+        );
       }
 
-      if (!mediaUrl) {
-        throw new Error('No media URL returned from Kie.ai API polling');
+      if (!mediaUrl && !textOutput) {
+        throw new Error('Workflow completed without a media URL or text output');
       }
 
-      const workflowCreditCost = calculateWorkflowCreditCost(existing.model, params);
+      const finalParameters: StoredWorkflowParameters = {
+        ...params,
+        ...parametersPatch
+      };
+      const workflowCreditCost = calculateWorkflowCreditCost(existing.model, finalParameters);
       const spendResult = await this.billingService.spendCreditsForWorkflow(existing.userId, workflowCreditCost);
       if (!spendResult.success) {
         throw new Error(
@@ -1130,12 +1169,13 @@ export class WorkflowQueueService {
         where: { id: payload.workflowJobId },
         data: {
           status: 'succeeded',
-          mediaUrl,
-          parameters: generatedMediaUrls
+          mediaUrl: mediaUrl ?? null,
+          parameters: generatedMediaUrls || generatedPromptSet || textOutput || Object.keys(parametersPatch).length > 0
             ? JSON.stringify({
-              ...params,
+              ...finalParameters,
               ...(generatedPromptSet ? { generatedPromptSet } : {}),
-              generatedMediaUrls
+              ...(generatedMediaUrls ? { generatedMediaUrls } : {}),
+              ...(textOutput ? { generatedText: textOutput } : {})
             })
             : existing.parameters,
           error: null
@@ -1146,6 +1186,7 @@ export class WorkflowQueueService {
         status: 'succeeded',
         mediaUrl,
         resultUrls: generatedMediaUrls ?? undefined,
+        textOutput: textOutput ?? null,
         error: null
       });
     } catch (error) {
