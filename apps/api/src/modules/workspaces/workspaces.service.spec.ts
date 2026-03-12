@@ -8,7 +8,8 @@ describe('WorkspacesService', () => {
         findUnique: jest.fn(),
         findMany: jest.fn(),
         upsert: jest.fn(),
-        update: jest.fn()
+        update: jest.fn(),
+        updateMany: jest.fn()
       }
     };
 
@@ -106,5 +107,115 @@ describe('WorkspacesService', () => {
       edges: [],
       viewport: undefined
     });
+  });
+
+  it('creates a custom space even when the legacy custom spaces store is not writable', async () => {
+    const { prisma, service } = createService();
+
+    prisma.workspace.upsert.mockResolvedValue({
+      id: 'storyboard-space-1234abcd'
+    });
+
+    jest.spyOn(service as any, 'writeCustomSpacesStore').mockRejectedValue(
+      Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    );
+
+    await expect(
+      service.createCustomSpace(
+        'workspace-1',
+        {
+          name: 'Storyboard Space',
+          description: 'Custom space',
+          protection: 'standard'
+        },
+        ['workspace-1'],
+        'user-1'
+      )
+    ).resolves.toEqual({
+      item: expect.objectContaining({
+        ownerWorkspaceId: 'workspace-1',
+        name: 'Storyboard Space',
+        description: 'Custom space',
+        protection: 'standard',
+        sharedWorkspaceIds: []
+      })
+    });
+
+    expect(prisma.workspace.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates a custom space even when the legacy custom spaces store is not writable', async () => {
+    const { prisma, service } = createService();
+
+    prisma.workspace.updateMany.mockResolvedValue({ count: 1 });
+
+    jest.spyOn(service as any, 'readAllCustomSpaces').mockResolvedValue({
+      'workspace-1': [
+        {
+          id: 'space-1',
+          ownerWorkspaceId: 'workspace-1',
+          name: 'Storyboard Space',
+          description: 'Custom space',
+          protection: 'standard',
+          sharedWorkspaceIds: [],
+          createdAt: '2026-03-09T00:00:00.000Z'
+        }
+      ]
+    });
+    jest.spyOn(service as any, 'writeCustomSpacesStore').mockRejectedValue(
+      Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    );
+
+    await expect(
+      service.updateCustomSpace(
+        'workspace-1',
+        'space-1',
+        {
+          name: 'Updated Storyboard Space',
+          description: 'Updated custom space'
+        },
+        ['workspace-1']
+      )
+    ).resolves.toEqual({
+      item: expect.objectContaining({
+        id: 'space-1',
+        name: 'Updated Storyboard Space',
+        description: 'Updated custom space'
+      })
+    });
+
+    expect(prisma.workspace.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes a custom space even when the legacy custom spaces store is not writable', async () => {
+    const { prisma, service } = createService();
+
+    prisma.workspace.updateMany.mockResolvedValue({ count: 1 });
+
+    jest.spyOn(service as any, 'readAllCustomSpaces').mockResolvedValue({
+      'workspace-1': [
+        {
+          id: 'space-1',
+          ownerWorkspaceId: 'workspace-1',
+          name: 'Storyboard Space',
+          description: 'Custom space',
+          protection: 'standard',
+          sharedWorkspaceIds: [],
+          createdAt: '2026-03-09T00:00:00.000Z'
+        }
+      ]
+    });
+    jest.spyOn(service as any, 'writeCustomSpacesStore').mockRejectedValue(
+      Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    );
+
+    await expect(
+      service.deleteCustomSpace('workspace-1', 'space-1', ['workspace-1'])
+    ).resolves.toEqual({
+      success: true,
+      deleted: true
+    });
+
+    expect(prisma.workspace.updateMany).toHaveBeenCalledTimes(1);
   });
 });

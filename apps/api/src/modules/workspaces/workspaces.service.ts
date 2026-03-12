@@ -39,6 +39,10 @@ type CustomSpaceConfig = {
     createdAt: string;
 };
 
+type NodeFsError = Error & {
+    code?: string;
+};
+
 type WorkspaceCanvasState = {
     nodes: Record<string, unknown>[];
     edges: Record<string, unknown>[];
@@ -621,10 +625,56 @@ export class WorkspacesService {
         return protection === 'template-only' || protection === 'locked';
     }
 
+    private toCustomSpaceConfig(item: CustomSpaceItem): CustomSpaceConfig {
+        return {
+            ownerWorkspaceId: item.ownerWorkspaceId,
+            description: item.description,
+            protection: item.protection,
+            sharedWorkspaceIds: item.sharedWorkspaceIds,
+            createdAt: item.createdAt
+        };
+    }
+
     private async writeCustomSpacesStore(store: Record<string, CustomSpaceItem[]>) {
         const dir = path.dirname(this.customSpacesPath);
         await fs.mkdir(dir, { recursive: true });
         await fs.writeFile(this.customSpacesPath, JSON.stringify(store, null, 2), 'utf-8');
+    }
+
+    private isIgnorableLegacyStoreWriteError(error: unknown) {
+        const code = (error as NodeFsError | undefined)?.code;
+        return code === 'EACCES' || code === 'EROFS';
+    }
+
+    private async syncLegacyCustomSpacesStore(
+        ownerWorkspaceId: string,
+        spaceId: string,
+        nextItem: CustomSpaceItem | null
+    ) {
+        const store = await this.readCustomSpacesStore();
+        const existingItems = Array.isArray(store[ownerWorkspaceId]) ? store[ownerWorkspaceId] : [];
+        const remainingItems = existingItems.filter((item) => item.id !== spaceId);
+
+        if (nextItem) {
+            store[ownerWorkspaceId] = [nextItem, ...remainingItems]
+                .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        } else if (remainingItems.length > 0) {
+            store[ownerWorkspaceId] = remainingItems;
+        } else {
+            delete store[ownerWorkspaceId];
+        }
+
+        try {
+            await this.writeCustomSpacesStore(store);
+        } catch (error) {
+            if (this.isIgnorableLegacyStoreWriteError(error)) {
+                const code = (error as NodeFsError).code;
+                console.warn(`[workspaces] skipping legacy custom spaces store sync: ${code}`);
+                return;
+            }
+
+            throw error;
+        }
     }
 
     async updateSettings(id: string, payload: UpdateWorkspaceSettingsDto, userWorkspaceIds: string[], userId: string | undefined) {
@@ -881,39 +931,21 @@ export class WorkspacesService {
             createdAt: new Date().toISOString()
         };
 
-        const store = await this.readCustomSpacesStore();
-        const existingItems = Array.isArray(store[id]) ? store[id] : [];
-        const nextItems = [nextItem, ...existingItems]
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-
-        store[id] = nextItems;
-        await this.writeCustomSpacesStore(store);
-
         await this.prisma.workspace.upsert({
             where: { id: spaceId },
             update: {
                 name: trimmedName,
-                customSpaceConfig: JSON.stringify({
-                    ownerWorkspaceId: nextItem.ownerWorkspaceId,
-                    description: nextItem.description,
-                    protection: nextItem.protection,
-                    sharedWorkspaceIds: nextItem.sharedWorkspaceIds,
-                    createdAt: nextItem.createdAt
-                } satisfies CustomSpaceConfig)
+                customSpaceConfig: JSON.stringify(this.toCustomSpaceConfig(nextItem))
             },
             create: {
                 id: spaceId,
                 userId,
                 name: trimmedName,
-                customSpaceConfig: JSON.stringify({
-                    ownerWorkspaceId: nextItem.ownerWorkspaceId,
-                    description: nextItem.description,
-                    protection: nextItem.protection,
-                    sharedWorkspaceIds: nextItem.sharedWorkspaceIds,
-                    createdAt: nextItem.createdAt
-                } satisfies CustomSpaceConfig)
+                customSpaceConfig: JSON.stringify(this.toCustomSpaceConfig(nextItem))
             }
         });
+
+        await this.syncLegacyCustomSpacesStore(id, spaceId, nextItem);
 
         return {
             item: nextItem
@@ -961,21 +993,14 @@ export class WorkspacesService {
             sharedWorkspaceIds: nextProtection === 'team-shared' ? nextSharedWorkspaceIds : []
         };
 
-        store[id] = existingItems.map((item) => item.id === spaceId ? updatedItem : item);
-        await this.writeCustomSpacesStore(store);
         await this.prisma.workspace.updateMany({
             where: { id: spaceId },
             data: {
                 name: updatedItem.name,
-                customSpaceConfig: JSON.stringify({
-                    ownerWorkspaceId: updatedItem.ownerWorkspaceId,
-                    description: updatedItem.description,
-                    protection: updatedItem.protection,
-                    sharedWorkspaceIds: updatedItem.sharedWorkspaceIds,
-                    createdAt: updatedItem.createdAt
-                } satisfies CustomSpaceConfig)
+                customSpaceConfig: JSON.stringify(this.toCustomSpaceConfig(updatedItem))
             }
         });
+        await this.syncLegacyCustomSpacesStore(id, spaceId, updatedItem);
 
         return {
             item: updatedItem
@@ -1003,14 +1028,13 @@ export class WorkspacesService {
 
         const nextItems = existingItems.filter((item) => item.id !== spaceId);
 
-        store[id] = nextItems;
-        await this.writeCustomSpacesStore(store);
         await this.prisma.workspace.updateMany({
             where: { id: spaceId },
             data: {
                 customSpaceConfig: null
             }
         });
+        await this.syncLegacyCustomSpacesStore(id, spaceId, null);
 
         return {
             success: true,
