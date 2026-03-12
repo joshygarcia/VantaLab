@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { chooseWorkspaceTokenStrategy } from '@/lib/workspace-token-strategy';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 const DEV_JWT = process.env.NEXT_PUBLIC_DEV_JWT;
@@ -84,13 +85,16 @@ type ExecuteRequest = {
   parameters: {
     prompt: string;
     referenceImageUrl?: string;
+    referenceVideoUrl?: string;
     aspectRatio?: string;
     resolution?: string;
     outputFormat?: 'png' | 'jpg';
     amount?: number;
     duration?: string;
-    mode?: 'std' | 'pro';
+    mode?: string;
     sound?: boolean;
+    characterOrientation?: 'image' | 'video';
+    reasoningEffort?: 'low' | 'high';
     multiShots?: boolean;
     multiPrompt?: Array<{ prompt: string; duration: number }>;
     klingElements?: Array<{
@@ -134,6 +138,7 @@ type JobResponse = {
   status: 'queued' | 'processing' | 'succeeded' | 'failed';
   mediaUrl?: string;
   resultUrls?: string[];
+  textOutput?: string;
   error?: string;
 };
 
@@ -303,27 +308,37 @@ async function getAccessToken(workspaceId: string): Promise<string> {
   const supabase = createClient();
   const { data } = await supabase.auth.getSession();
   const sessionUserId = data.session?.user?.id?.trim();
+  const sessionToken = data.session?.access_token;
 
   const existing = workspaceTokens.get(workspaceId);
   if (existing) {
     return existing;
   }
 
-  if (data.session?.access_token) {
-    const hasWorkspaceAccess = await tokenCanAccessWorkspace(data.session.access_token, workspaceId);
-    if (hasWorkspaceAccess) {
-      return data.session.access_token;
-    }
+  const sessionHasDirectWorkspaceAccess = sessionToken
+    ? await tokenCanAccessWorkspace(sessionToken, workspaceId)
+    : false;
+  const devJwtHasDirectWorkspaceAccess = DEV_JWT
+    ? await tokenCanAccessWorkspace(DEV_JWT, workspaceId)
+    : false;
+
+  const strategy = chooseWorkspaceTokenStrategy({
+    hasSessionToken: Boolean(sessionToken),
+    sessionHasDirectWorkspaceAccess,
+    hasDevJwt: Boolean(DEV_JWT),
+    devJwtHasDirectWorkspaceAccess,
+    isDevEnv: IS_DEV_ENV
+  });
+
+  if (strategy === 'session' && sessionToken) {
+    return sessionToken;
   }
 
-  if (DEV_JWT) {
-    const hasWorkspaceAccess = await tokenCanAccessWorkspace(DEV_JWT, workspaceId);
-    if (hasWorkspaceAccess) {
-      return DEV_JWT;
-    }
+  if (strategy === 'dev-jwt' && DEV_JWT) {
+    return DEV_JWT;
   }
 
-  if (!IS_DEV_ENV) {
+  if (strategy === 'error') {
     throw new Error('Failed to acquire auth token for workspace scope');
   }
 

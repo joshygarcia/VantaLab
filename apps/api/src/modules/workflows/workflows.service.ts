@@ -99,22 +99,29 @@ export class WorkflowsService {
     }
 
     let resultUrls: string[] | undefined;
+    let textOutput: string | undefined;
     if (job.parameters) {
       try {
-        const parsed = JSON.parse(job.parameters) as { generatedMediaUrls?: unknown };
+        const parsed = JSON.parse(job.parameters) as { generatedMediaUrls?: unknown; generatedText?: unknown };
         if (Array.isArray(parsed.generatedMediaUrls)) {
           resultUrls = parsed.generatedMediaUrls
             .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             .slice(0, 4);
         }
+
+        if (typeof parsed.generatedText === 'string' && parsed.generatedText.trim().length > 0) {
+          textOutput = parsed.generatedText.trim();
+        }
       } catch {
         resultUrls = undefined;
+        textOutput = undefined;
       }
     }
 
     return {
       ...job,
-      resultUrls
+      resultUrls,
+      textOutput
     };
   }
 

@@ -12,11 +12,10 @@ import {
   studioSecondaryButtonClass,
   studioStatusClass
 } from '@/components/studio/StudioControls';
+import { getHistoryMediaEntries } from './history-media';
 
 const panelClass = STUDIO_PANEL_CLASS;
 const AUTO_APPLY_DELAY_MS = 200;
-
-const isVideoUrl = (url: string) => /\.(mp4|webm|mov)(\?|$)/i.test(url);
 
 const getDaysRemaining = (expiresAt: string) => {
   const diff = new Date(expiresAt).getTime() - Date.now();
@@ -196,10 +195,8 @@ export default function HistoryPage() {
 
   const historyMetrics = useMemo(() => {
     const videoCount = items.filter((item) => {
-      const mediaUrls = Array.isArray(item.mediaUrls) && item.mediaUrls.length > 0
-        ? item.mediaUrls
-        : [item.mediaUrl];
-      return mediaUrls.some((url) => isVideoUrl(url));
+      const mediaEntries = getHistoryMediaEntries(item);
+      return mediaEntries.some((entry) => entry.isVideo);
     }).length;
 
     return {
@@ -372,11 +369,10 @@ export default function HistoryPage() {
               <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
                 {groupItems.map((item) => {
                   const daysRemaining = getDaysRemaining(item.expiresAt);
-                  const mediaUrls = Array.isArray(item.mediaUrls) && item.mediaUrls.length > 0
-                    ? item.mediaUrls
-                    : [item.mediaUrl];
-                  const primaryMediaUrl = mediaUrls[0];
-                  const video = isVideoUrl(primaryMediaUrl);
+                  const mediaEntries = getHistoryMediaEntries(item);
+                  const primaryMedia = mediaEntries[0];
+                  const primaryMediaUrl = primaryMedia?.url ?? item.mediaUrl;
+                  const video = primaryMedia?.isVideo ?? false;
 
                   return (
                     <article
@@ -441,10 +437,42 @@ export default function HistoryPage() {
                         <div className="space-y-2.5">
                           <p className="line-clamp-3 text-xs leading-relaxed text-zinc-200">{item.prompt}</p>
 
-                          {mediaUrls.length > 1 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {video ? (
+                              <a
+                                href={primaryMediaUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/35 px-3 py-1.5 text-[11px] font-semibold text-zinc-100 transition hover:border-white/35 hover:bg-black/55"
+                              >
+                                <Film className="h-3.5 w-3.5" />
+                                Open video
+                              </a>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setViewerImageUrl(primaryMediaUrl)}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/35 px-3 py-1.5 text-[11px] font-semibold text-zinc-100 transition hover:border-white/35 hover:bg-black/55"
+                              >
+                                <ImageIcon className="h-3.5 w-3.5" />
+                                Preview
+                              </button>
+                            )}
+                            <a
+                              href={primaryMediaUrl}
+                              download
+                              className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/35 px-3 py-1.5 text-[11px] font-semibold text-zinc-100 transition hover:border-white/35 hover:bg-black/55"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              Download
+                            </a>
+                          </div>
+
+                          {mediaEntries.length > 1 ? (
                             <div className="grid grid-cols-3 gap-1.5">
-                              {mediaUrls.map((url, index) => {
-                                const thumbIsVideo = isVideoUrl(url);
+                              {mediaEntries.map((entry, index) => {
+                                const thumbIsVideo = entry.isVideo;
+                                const url = entry.url;
 
                                 return (
                                   thumbIsVideo ? (

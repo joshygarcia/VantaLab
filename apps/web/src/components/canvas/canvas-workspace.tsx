@@ -6,7 +6,7 @@ import ReactFlow, { Background, Connection, Edge, MiniMap, Node, ReactFlowProvid
 import 'reactflow/dist/style.css';
 import '@reactflow/node-resizer/dist/style.css';
 import { NodeData, useCanvasStore } from '@/store/canvas-store';
-import { executeWorkflow, getJobStatus, getWorkspaceCanvas, subscribeToJobStatus, updateWorkspaceCanvas } from '@/lib/api';
+import { executeWorkflow, getJobStatus, getKlingElementsLibrary, getWorkspaceCanvas, subscribeToJobStatus, updateWorkspaceCanvas } from '@/lib/api';
 import { findProjectBySpaceId } from '@/lib/projects';
 import { useProjectContext } from '@/components/projects/project-context';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
@@ -14,17 +14,57 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { MainNode } from './nodes/MainNode';
 import { TextPromptNode } from './nodes/TextPromptNode';
 import { ImageGeneratorNode } from './nodes/ImageGeneratorNode';
+import { VideoGeneratorNode } from './nodes/VideoGeneratorNode';
+import { AgentNode } from './nodes/AgentNode';
 import { ConnectionEdge } from './ConnectionEdge';
 import { FloatingToolbar } from './FloatingToolbar';
 import { AddNodeType } from './add-node-menu';
 import { NodeContextMenu } from './NodeContextMenu';
 import { PaneContextMenu } from './PaneContextMenu';
+import { ElementLibraryPickerModal } from './ElementLibraryPickerModal';
+import {
+  buildKlingElementParametersFromSelection,
+  normalizeElementLibrarySelection,
+  removeElementLibrarySelectionItem,
+  type ElementLibrarySelectionItem,
+  type KlingElementParameter
+} from './element-library-selection';
 import { AlertTriangle, X } from 'lucide-react';
+import {
+  AGENT_MODEL_OPTIONS,
+  CHARACTER_ORIENTATION_OPTIONS,
+  DEFAULT_AGENT_MODEL,
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_VIDEO_MODEL,
+  GROK_VIDEO_RESOLUTION_OPTIONS,
+  IMAGE_MODEL_OPTIONS,
+  IMAGE_RESOLUTION_OPTIONS,
+  KLING_30_DURATION_OPTIONS,
+  KLING_MODE_OPTIONS,
+  MULTI_SHOT_OPTIONS,
+  OUTPUT_FORMAT_OPTIONS,
+  REASONING_EFFORT_OPTIONS,
+  SOUND_OPTIONS,
+  VIDEO_MODEL_OPTIONS,
+  VEO_ASPECT_RATIO_OPTIONS,
+  WIDE_ASPECT_RATIO_OPTIONS,
+  applyNodeUiSchemaToControls,
+  getAgentNodeUiSchema,
+  getImageNodeUiSchema,
+  getVideoNodeUiSchema,
+  normalizeSchemaSelectValue,
+  imageModelRequiresReference,
+  videoModelRequiresImage,
+  videoModelRequiresVideo,
+  videoModelSupportsKlingElements
+} from './kie-model-catalog';
 
 const nodeTypes = {
   main: MainNode,
   'text-prompt': TextPromptNode,
-  'image-generator': ImageGeneratorNode
+  'image-generator': ImageGeneratorNode,
+  'video-generator': VideoGeneratorNode,
+  agent: AgentNode
 };
 
 const edgeTypes = {
@@ -37,12 +77,23 @@ const TEXT_PROMPT_OUTPUT = { id: 'prompt-out', label: 'Prompt', type: 'prompt' }
 const IMAGE_GENERATOR_PROMPT_INPUT = { id: 'prompt-in', label: 'Prompt', type: 'prompt' } as const;
 const IMAGE_GENERATOR_IMAGE_INPUT = { id: 'image-in', label: 'Image', type: 'image' } as const;
 const IMAGE_GENERATOR_OUTPUT = { id: 'image-out', label: 'Image', type: 'image' } as const;
+const VIDEO_GENERATOR_PROMPT_INPUT = { id: 'prompt-in', label: 'Prompt', type: 'prompt' } as const;
+const VIDEO_GENERATOR_IMAGE_INPUT = { id: 'image-in', label: 'Image', type: 'image' } as const;
+const VIDEO_GENERATOR_VIDEO_INPUT = { id: 'video-in', label: 'Video', type: 'video' } as const;
+const VIDEO_GENERATOR_OUTPUT = { id: 'video-out', label: 'Video', type: 'video' } as const;
+const AGENT_PROMPT_INPUT = { id: 'prompt-in', label: 'Prompt', type: 'prompt' } as const;
+const AGENT_IMAGE_INPUT = { id: 'image-in', label: 'Image', type: 'image' } as const;
+const AGENT_OUTPUT = { id: 'prompt-out', label: 'Prompt', type: 'prompt' } as const;
 const DEFAULT_MAIN_NODE_SIZE = { width: 360, height: 320 } as const;
 const DEFAULT_TEXT_PROMPT_NODE_SIZE = { width: 360, height: 320 } as const;
 const DEFAULT_IMAGE_GENERATOR_NODE_SIZE = { width: 540, height: 560 } as const;
+const DEFAULT_VIDEO_GENERATOR_NODE_SIZE = { width: 540, height: 620 } as const;
+const DEFAULT_AGENT_NODE_SIZE = { width: 360, height: 360 } as const;
 const RUN_NODE_EVENT = 'persona:run-node';
 const QUICK_CONNECT_NODE_EVENT = 'persona:quick-connect-node';
 const DELETE_NODE_EVENT = 'persona:delete-node';
+const OPEN_ELEMENT_LIBRARY_NODE_EVENT = 'persona:open-node-element-library';
+const REMOVE_ELEMENT_LIBRARY_ITEM_EVENT = 'persona:remove-node-element-library-item';
 
 type RunNodeMode = 'node-only' | 'chain-all' | 'upstream-and-self' | 'self-and-downstream';
 
@@ -58,6 +109,15 @@ type QuickConnectNodeEventDetail = {
 
 type DeleteNodeEventDetail = {
   nodeId?: string;
+};
+
+type OpenElementLibraryNodeEventDetail = {
+  nodeId?: string;
+};
+
+type RemoveElementLibraryItemEventDetail = {
+  nodeId?: string;
+  itemId?: string;
 };
 
 type ErrorToast = {
@@ -77,6 +137,49 @@ const getFirstTextareaValue = (node: Node<NodeData>) => {
   }
 
   return '';
+};
+
+const upsertSelectControl = (
+  controls: NonNullable<NodeData['controls']>,
+  prefix: string,
+  nodeId: string,
+  defaultValue: string,
+  options: Array<{ label: string; value: string }>
+) => {
+  const existingControl = controls.find((control) => control.type === 'select' && control.id.startsWith(prefix));
+  const value = existingControl?.type === 'select' ? existingControl.value : defaultValue;
+
+  return {
+    type: 'select' as const,
+    id: existingControl?.type === 'select' ? existingControl.id : `${prefix}${nodeId}`,
+    value,
+    options
+  };
+};
+
+const getAttachedElementLibraryItems = (node: Node<NodeData>): ElementLibrarySelectionItem[] =>
+  normalizeElementLibrarySelection(node.data.attachedElementLibraryItems ?? []);
+
+const withRequiredInputs = (
+  existingInputs: NonNullable<NodeData['inputs']> | undefined,
+  requiredInputs: Array<{ id: string; label: string; type: string }>
+) => {
+  const inputs = [...(existingInputs ?? [])];
+
+  for (const requiredInput of requiredInputs) {
+    const exists = inputs.some(
+      (input) =>
+        input.id === requiredInput.id ||
+        input.id.startsWith(`${requiredInput.id}_`) ||
+        input.id.startsWith(`${requiredInput.id}-`)
+    );
+
+    if (!exists) {
+      inputs.push({ ...requiredInput });
+    }
+  }
+
+  return inputs;
 };
 
 const buildCanonicalMainNode = (node: Node<NodeData>): Node<NodeData> => {
@@ -163,64 +266,22 @@ const buildCanonicalImageGeneratorNode = (node: Node<NodeData>): Node<NodeData> 
       placeholder: 'Describe the image you want to generate...'
     };
 
-  const findSelect = (prefix: string) =>
-    controls.find((control) => control.type === 'select' && control.id.startsWith(prefix));
-
-  const modelControl = findSelect('model_') ?? {
-    type: 'select' as const,
-    id: `model_${node.id}`,
-    value: 'nano-banana-pro',
-    options: [
-      { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
-      { label: 'Z-Image', value: 'z-image' }
-    ]
-  };
-
-  const aspectControl = findSelect('aspect_') ?? {
-    type: 'select' as const,
-    id: `aspect_${node.id}`,
-    value: '1:1',
-    options: [
-      { label: '1:1', value: '1:1' },
-      { label: '4:3', value: '4:3' },
-      { label: '3:4', value: '3:4' },
-      { label: '16:9', value: '16:9' },
-      { label: '9:16', value: '9:16' }
-    ]
-  };
-
-  const resolutionControl = findSelect('res_') ?? {
-    type: 'select' as const,
-    id: `res_${node.id}`,
-    value: '1K',
-    options: [
-      { label: '1K', value: '1K' },
-      { label: '2K', value: '2K' },
-      { label: '4K', value: '4K' }
-    ]
-  };
-
-  const amountControl = findSelect('amount_') ?? {
-    type: 'select' as const,
-    id: `amount_${node.id}`,
-    value: '1',
-    options: [
-      { label: 'x1', value: '1' },
-      { label: 'x2', value: '2' },
-      { label: 'x3', value: '3' },
-      { label: 'x4', value: '4' }
-    ]
-  };
-
-  const outputFormatControl = findSelect('outfmt_') ?? {
-    type: 'select' as const,
-    id: `outfmt_${node.id}`,
-    value: 'png',
-    options: [
-      { label: 'PNG', value: 'png' },
-      { label: 'JPG', value: 'jpg' }
-    ]
-  };
+  const modelControl = upsertSelectControl(controls, 'model_', node.id, DEFAULT_IMAGE_MODEL, [...IMAGE_MODEL_OPTIONS]);
+  const selectedModel = modelControl.value || DEFAULT_IMAGE_MODEL;
+  const schema = getImageNodeUiSchema(selectedModel);
+  const aspectControl = upsertSelectControl(
+    controls,
+    'aspect_',
+    node.id,
+    schema.defaultValues.aspect_ ?? '1:1',
+    schema.selectOptions.aspect_ ?? [...WIDE_ASPECT_RATIO_OPTIONS]
+  );
+  const resolutionControl = upsertSelectControl(controls, 'res_', node.id, '1K', [...IMAGE_RESOLUTION_OPTIONS]);
+  const outputFormatControl = upsertSelectControl(controls, 'outfmt_', node.id, 'png', [...OUTPUT_FORMAT_OPTIONS]);
+  const schemaControls = applyNodeUiSchemaToControls(
+    [promptControl, modelControl, aspectControl, resolutionControl, outputFormatControl],
+    schema
+  );
 
   return {
     ...node,
@@ -235,10 +296,186 @@ const buildCanonicalImageGeneratorNode = (node: Node<NodeData>): Node<NodeData> 
       icon: 'image',
       status: node.data.status ?? 'idle',
       runnable: true,
-      controls: [promptControl, modelControl, aspectControl, resolutionControl, amountControl, outputFormatControl],
+      controls: schemaControls,
       inputs: [{ ...IMAGE_GENERATOR_PROMPT_INPUT }, { ...IMAGE_GENERATOR_IMAGE_INPUT }],
+      hiddenInputIds: [...schema.hiddenInputIds],
       outputs: [{ ...IMAGE_GENERATOR_OUTPUT }],
       preview: node.data.preview ?? { type: 'placeholder', text: 'Describe the image you want to generate...' }
+    }
+  };
+};
+
+const buildCanonicalVideoGeneratorNode = (node: Node<NodeData>): Node<NodeData> => {
+  const existingControls = node.data.controls ?? [];
+  const passthroughControls = existingControls.filter(
+    (control) =>
+      !(
+        control.id.startsWith('prompt_') ||
+        control.id.startsWith('model_') ||
+        control.id.startsWith('aspect_') ||
+        control.id.startsWith('duration_') ||
+        control.id.startsWith('mode_') ||
+        control.id.startsWith('sound_') ||
+        control.id.startsWith('char_orient_') ||
+        control.id.startsWith('multi_shots_') ||
+        control.id.startsWith('multi_prompt_') ||
+        control.id.startsWith('vres_')
+      )
+  );
+
+  const promptControl =
+    existingControls.find((control) => control.type === 'textarea' && control.id.startsWith('prompt_')) ??
+    {
+      type: 'textarea' as const,
+      id: `prompt_${node.id}`,
+      value: getFirstTextareaValue(node),
+      placeholder: 'Describe the video you want to generate...'
+    };
+
+  const modelControl = upsertSelectControl(existingControls, 'model_', node.id, DEFAULT_VIDEO_MODEL, [...VIDEO_MODEL_OPTIONS]);
+  const multiShotsControl = upsertSelectControl(existingControls, 'multi_shots_', node.id, 'false', [...MULTI_SHOT_OPTIONS]);
+  const selectedModel = modelControl.value || DEFAULT_VIDEO_MODEL;
+  const multiShotsEnabled = multiShotsControl.value === 'true';
+  const schema = getVideoNodeUiSchema(selectedModel, { multiShots: multiShotsEnabled });
+  const aspectControl = upsertSelectControl(
+    existingControls,
+    'aspect_',
+    node.id,
+    schema.defaultValues.aspect_ ?? '16:9',
+    schema.selectOptions.aspect_ ?? [...WIDE_ASPECT_RATIO_OPTIONS]
+  );
+  const durationControl = upsertSelectControl(
+    existingControls,
+    'duration_',
+    node.id,
+    schema.defaultValues.duration_ ?? '5',
+    schema.selectOptions.duration_ ?? [...KLING_30_DURATION_OPTIONS]
+  );
+  const modeControl = upsertSelectControl(
+    existingControls,
+    'mode_',
+    node.id,
+    schema.defaultValues.mode_ ?? 'pro',
+    schema.selectOptions.mode_ ?? [...KLING_MODE_OPTIONS]
+  );
+  const soundControl = upsertSelectControl(
+    existingControls,
+    'sound_',
+    node.id,
+    schema.defaultValues.sound_ ?? 'false',
+    schema.selectOptions.sound_ ?? [...SOUND_OPTIONS]
+  );
+  const characterOrientationControl = upsertSelectControl(
+    existingControls,
+    'char_orient_',
+    node.id,
+    schema.defaultValues.char_orient_ ?? 'video',
+    schema.selectOptions.char_orient_ ?? [...CHARACTER_ORIENTATION_OPTIONS]
+  );
+  const multiPromptControl =
+    existingControls.find((control) => control.type === 'textarea' && control.id.startsWith('multi_prompt_')) ??
+    {
+      type: 'textarea' as const,
+      id: `multi_prompt_${node.id}`,
+      value: 'Aerial sweep over the skyline at sunset | 3\nClose-up of neon reflections in rain puddles | 2',
+      placeholder: 'Shot prompt | duration'
+    };
+  const videoResolutionControl = upsertSelectControl(
+    existingControls,
+    'vres_',
+    node.id,
+    schema.defaultValues.vres_ ?? '480p',
+    schema.selectOptions.vres_ ?? [...GROK_VIDEO_RESOLUTION_OPTIONS]
+  );
+  const schemaControls = applyNodeUiSchemaToControls(
+    [
+      promptControl,
+      modelControl,
+      aspectControl,
+      durationControl,
+      modeControl,
+      soundControl,
+      characterOrientationControl,
+      multiShotsControl,
+      multiPromptControl,
+      videoResolutionControl,
+      ...passthroughControls
+    ],
+    schema
+  );
+
+  return {
+    ...node,
+    type: 'video-generator',
+    style: {
+      width: node.style?.width ?? DEFAULT_VIDEO_GENERATOR_NODE_SIZE.width,
+      height: node.style?.height ?? DEFAULT_VIDEO_GENERATOR_NODE_SIZE.height
+    },
+    data: {
+      ...node.data,
+      title: 'Video Generator',
+      label: 'Video Generator',
+      icon: 'video',
+      status: node.data.status ?? 'idle',
+      runnable: true,
+      controls: schemaControls,
+      supportsElementLibrary: videoModelSupportsKlingElements(selectedModel),
+      attachedElementLibraryItems: getAttachedElementLibraryItems(node),
+      inputs: withRequiredInputs(node.data.inputs, [
+        { ...VIDEO_GENERATOR_PROMPT_INPUT },
+        { ...VIDEO_GENERATOR_IMAGE_INPUT },
+        { ...VIDEO_GENERATOR_VIDEO_INPUT },
+        { id: 'multi-prompt-in', label: 'Multi-shot', type: 'prompt' },
+        { id: 'kling-elements-in', label: 'Elements', type: 'asset' }
+      ]),
+      hiddenInputIds: [...schema.hiddenInputIds],
+      outputs: [{ ...VIDEO_GENERATOR_OUTPUT }],
+      preview: node.data.preview ?? { type: 'placeholder', text: 'Describe the video you want to generate...' }
+    }
+  };
+};
+
+const buildCanonicalAgentNode = (node: Node<NodeData>): Node<NodeData> => {
+  const existingControls = node.data.controls ?? [];
+  const promptControl =
+    existingControls.find((control) => control.type === 'textarea' && control.id.startsWith('prompt_')) ??
+    {
+      type: 'textarea' as const,
+      id: `prompt_${node.id}`,
+      value: getFirstTextareaValue(node),
+      placeholder: 'Ask the model to write, summarize, or transform...'
+    };
+  const modelControl = upsertSelectControl(existingControls, 'model_', node.id, DEFAULT_AGENT_MODEL, [...AGENT_MODEL_OPTIONS]);
+  const selectedModel = modelControl.value || DEFAULT_AGENT_MODEL;
+  const schema = getAgentNodeUiSchema(selectedModel);
+  const schemaControls = applyNodeUiSchemaToControls(
+    [
+      promptControl,
+      modelControl,
+      upsertSelectControl(existingControls, 'reasoning_', node.id, 'high', [...REASONING_EFFORT_OPTIONS])
+    ],
+    schema
+  );
+
+  return {
+    ...node,
+    type: 'agent',
+    style: {
+      width: node.style?.width ?? DEFAULT_AGENT_NODE_SIZE.width,
+      height: node.style?.height ?? DEFAULT_AGENT_NODE_SIZE.height
+    },
+    data: {
+      ...node.data,
+      title: 'Agent',
+      label: 'Agent',
+      icon: 'align-left',
+      status: node.data.status ?? 'idle',
+      runnable: true,
+      controls: schemaControls,
+      inputs: withRequiredInputs(node.data.inputs, [{ ...AGENT_PROMPT_INPUT }, { ...AGENT_IMAGE_INPUT }]),
+      hiddenInputIds: [...schema.hiddenInputIds],
+      outputs: [{ ...AGENT_OUTPUT }],
+      preview: node.data.preview ?? { type: 'placeholder', text: node.data.outputText ?? 'Ask the model to produce text.' }
     }
   };
 };
@@ -337,10 +574,90 @@ const isCanonicalImageGeneratorNode = (node: Node<NodeData>) => {
   const hasModelControl = controls.some((control) => control.type === 'select' && control.id.startsWith('model_'));
   const hasAspectControl = controls.some((control) => control.type === 'select' && control.id.startsWith('aspect_'));
   const hasResolutionControl = controls.some((control) => control.type === 'select' && control.id.startsWith('res_'));
-  const hasAmountControl = controls.some((control) => control.type === 'select' && control.id.startsWith('amount_'));
   const hasOutputFormatControl = controls.some((control) => control.type === 'select' && control.id.startsWith('outfmt_'));
 
-  return hasPromptControl && hasModelControl && hasAspectControl && hasResolutionControl && hasAmountControl && hasOutputFormatControl;
+  return hasPromptControl && hasModelControl && hasAspectControl && hasResolutionControl && hasOutputFormatControl;
+};
+
+const isCanonicalVideoGeneratorNode = (node: Node<NodeData>) => {
+  if (node.type !== 'video-generator') {
+    return false;
+  }
+
+  if (node.data.title !== 'Video Generator' || node.data.label !== 'Video Generator' || node.data.icon !== 'video') {
+    return false;
+  }
+
+  const inputs = node.data.inputs ?? [];
+  const hasPromptInput = inputs.some((input) => input.id === VIDEO_GENERATOR_PROMPT_INPUT.id);
+  const hasImageInput = inputs.some((input) => input.id === VIDEO_GENERATOR_IMAGE_INPUT.id);
+  const hasVideoInput = inputs.some((input) => input.id === VIDEO_GENERATOR_VIDEO_INPUT.id);
+  const hasMultiPromptInput = inputs.some((input) => input.id === 'multi-prompt-in');
+  const hasKlingElementsInput = inputs.some((input) => input.id === 'kling-elements-in');
+  if (!hasPromptInput || !hasImageInput || !hasVideoInput || !hasMultiPromptInput || !hasKlingElementsInput) {
+    return false;
+  }
+
+  const outputs = node.data.outputs ?? [];
+  if (outputs.length !== 1 || outputs[0]?.id !== VIDEO_GENERATOR_OUTPUT.id) {
+    return false;
+  }
+
+  const controls = node.data.controls ?? [];
+  const hasPromptControl = controls.some((control) => control.type === 'textarea' && control.id.startsWith('prompt_'));
+  const hasModelControl = controls.some((control) => control.type === 'select' && control.id.startsWith('model_'));
+  const hasAspectControl = controls.some((control) => control.type === 'select' && control.id.startsWith('aspect_'));
+  const hasDurationControl = controls.some((control) => control.type === 'select' && control.id.startsWith('duration_'));
+  const hasModeControl = controls.some((control) => control.type === 'select' && control.id.startsWith('mode_'));
+  const hasSoundControl = controls.some((control) => control.type === 'select' && control.id.startsWith('sound_'));
+  const hasCharacterOrientationControl = controls.some(
+    (control) => control.type === 'select' && control.id.startsWith('char_orient_')
+  );
+  const hasMultiShotsControl = controls.some((control) => control.type === 'select' && control.id.startsWith('multi_shots_'));
+  const hasMultiPromptControl = controls.some((control) => control.type === 'textarea' && control.id.startsWith('multi_prompt_'));
+  const hasVideoResolutionControl = controls.some((control) => control.type === 'select' && control.id.startsWith('vres_'));
+
+  return (
+    hasPromptControl &&
+    hasModelControl &&
+    hasAspectControl &&
+    hasDurationControl &&
+    hasModeControl &&
+    hasSoundControl &&
+    hasCharacterOrientationControl &&
+    hasMultiShotsControl &&
+    hasMultiPromptControl &&
+    hasVideoResolutionControl
+  );
+};
+
+const isCanonicalAgentNode = (node: Node<NodeData>) => {
+  if (node.type !== 'agent') {
+    return false;
+  }
+
+  if (node.data.title !== 'Agent' || node.data.label !== 'Agent' || node.data.icon !== 'align-left') {
+    return false;
+  }
+
+  const inputs = node.data.inputs ?? [];
+  const hasPromptInput = inputs.some((input) => input.id === AGENT_PROMPT_INPUT.id);
+  const hasImageInput = inputs.some((input) => input.id === AGENT_IMAGE_INPUT.id);
+  if (!hasPromptInput || !hasImageInput) {
+    return false;
+  }
+
+  const outputs = node.data.outputs ?? [];
+  if (outputs.length !== 1 || outputs[0]?.id !== AGENT_OUTPUT.id) {
+    return false;
+  }
+
+  const controls = node.data.controls ?? [];
+  const hasPromptControl = controls.some((control) => control.type === 'textarea' && control.id.startsWith('prompt_'));
+  const hasModelControl = controls.some((control) => control.type === 'select' && control.id.startsWith('model_'));
+  const hasReasoningControl = controls.some((control) => control.type === 'select' && control.id.startsWith('reasoning_'));
+
+  return hasPromptControl && hasModelControl && hasReasoningControl;
 };
 
 type CanvasWorkspaceProps = {
@@ -364,13 +681,6 @@ type CanvasPoint = {
 type KlingMultiPromptItem = {
   prompt: string;
   duration: number;
-};
-
-type KlingElementParameter = {
-  name: string;
-  description?: string;
-  elementInputUrls?: string[];
-  elementInputVideoUrls?: string[];
 };
 
 const portCompatibility: Record<Exclude<PortType, 'unknown'>, PortType[]> = {
@@ -945,6 +1255,12 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const [canvasReady, setCanvasReady] = useState(false);
   const [canvasError, setCanvasError] = useState('');
   const [errorToasts, setErrorToasts] = useState<ErrorToast[]>([]);
+  const [elementLibraryItems, setElementLibraryItems] = useState<ElementLibrarySelectionItem[]>([]);
+  const [elementLibraryLoading, setElementLibraryLoading] = useState(false);
+  const [elementLibraryStatus, setElementLibraryStatus] = useState('');
+  const [elementLibraryPickerNodeId, setElementLibraryPickerNodeId] = useState<string | null>(null);
+  const [elementLibraryQuery, setElementLibraryQuery] = useState('');
+  const [selectedElementLibraryIds, setSelectedElementLibraryIds] = useState<string[]>([]);
   const toastTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   const nodes = useCanvasStore((state) => state.nodes);
@@ -957,6 +1273,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   const markNode = useCanvasStore((state) => state.markNodeStatus);
   const clearNodeResultMedia = useCanvasStore((state) => state.clearNodeResultMedia);
   const appendNodeResultMedia = useCanvasStore((state) => state.appendNodeResultMedia);
+  const setNodeOutputText = useCanvasStore((state) => state.setNodeOutputText);
   const duplicateNode = useCanvasStore((state) => state.duplicateNode);
 
   const removeErrorToast = useCallback((toastId: number) => {
@@ -978,6 +1295,30 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       return [toast, ...current].slice(0, 4);
     });
   }, []);
+
+  const loadElementLibrary = useCallback(async () => {
+    setElementLibraryLoading(true);
+    setElementLibraryStatus('Loading library...');
+
+    try {
+      const result = await getKlingElementsLibrary(workspaceId);
+      const normalizedItems = normalizeElementLibrarySelection(result.items);
+      setElementLibraryItems(normalizedItems);
+      setElementLibraryStatus(
+        normalizedItems.length > 0
+          ? `Loaded ${normalizedItems.length} library item${normalizedItems.length === 1 ? '' : 's'}`
+          : 'No library items available'
+      );
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : 'Unable to load the element library.';
+      setElementLibraryStatus(message);
+      pushErrorToast('Library load failed', message);
+    } finally {
+      setElementLibraryLoading(false);
+    }
+  }, [pushErrorToast, workspaceId]);
 
   useEffect(() => {
     const activeIds = new Set(errorToasts.map((toast) => toast.id));
@@ -1285,6 +1626,72 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     setFuture([]);
   };
 
+  const updateNodeAttachedElementLibraryItems = useCallback((
+    nodeId: string,
+    nextItems: ElementLibrarySelectionItem[]
+  ) => {
+    rememberGraph();
+    setCanvas(
+      nodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                attachedElementLibraryItems: normalizeElementLibrarySelection(nextItems)
+              }
+            }
+          : node
+      ),
+      edges
+    );
+  }, [edges, nodes, setCanvas]);
+
+  const closeElementLibraryPicker = useCallback(() => {
+    setElementLibraryPickerNodeId(null);
+    setElementLibraryQuery('');
+    setSelectedElementLibraryIds([]);
+  }, []);
+
+  const openElementLibraryPicker = useCallback(async (nodeId: string) => {
+    const targetNode = nodes.find((node) => node.id === nodeId);
+    if (!targetNode) {
+      return;
+    }
+
+    const modelControl = targetNode.data.controls?.find(
+      (control) => control.type === 'select' && control.id.startsWith('model_')
+    );
+    const selectedModel = modelControl?.type === 'select' ? modelControl.value : DEFAULT_VIDEO_MODEL;
+    if (!videoModelSupportsKlingElements(selectedModel)) {
+      return;
+    }
+
+    setElementLibraryPickerNodeId(nodeId);
+    setElementLibraryQuery('');
+    setSelectedElementLibraryIds(getAttachedElementLibraryItems(targetNode).map((item) => item.id));
+
+    if (elementLibraryItems.length === 0 && !elementLibraryLoading) {
+      await loadElementLibrary();
+    }
+  }, [elementLibraryItems.length, elementLibraryLoading, loadElementLibrary, nodes]);
+
+  const applyElementLibrarySelection = useCallback(() => {
+    if (!elementLibraryPickerNodeId) {
+      return;
+    }
+
+    const selectedItems = elementLibraryItems.filter((item) => selectedElementLibraryIds.includes(item.id));
+    updateNodeAttachedElementLibraryItems(elementLibraryPickerNodeId, selectedItems);
+    closeElementLibraryPicker();
+  }, [
+    closeElementLibraryPicker,
+    elementLibraryItems,
+    elementLibraryPickerNodeId,
+    selectedElementLibraryIds,
+    updateNodeAttachedElementLibraryItems
+  ]);
+
   const buildNode = (kind: AddNodeType, basePosition?: CanvasPoint): Node<NodeData> => {
     const idSeed = `${Date.now()}_${nodeCounterRef.current}`;
     nodeCounterRef.current += 1;
@@ -1325,58 +1732,137 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           {
             type: 'select',
             id: `model_${idSeed}`,
-            value: 'nano-banana-pro',
-            options: [
-              { label: 'Nano Banana Pro', value: 'nano-banana-pro' },
-              { label: 'Z-Image', value: 'z-image' }
-            ]
+            value: DEFAULT_IMAGE_MODEL,
+            options: [...IMAGE_MODEL_OPTIONS]
           },
           {
             type: 'select',
             id: `aspect_${idSeed}`,
             value: '1:1',
-            options: [
-              { label: '1:1', value: '1:1' },
-              { label: '4:3', value: '4:3' },
-              { label: '3:4', value: '3:4' },
-              { label: '16:9', value: '16:9' },
-              { label: '9:16', value: '9:16' }
-            ]
+            options: [...WIDE_ASPECT_RATIO_OPTIONS]
           },
           {
             type: 'select',
             id: `res_${idSeed}`,
             value: '1K',
-            options: [
-              { label: '1K', value: '1K' },
-              { label: '2K', value: '2K' },
-              { label: '4K', value: '4K' }
-            ]
-          },
-          {
-            type: 'select',
-            id: `amount_${idSeed}`,
-            value: '1',
-            options: [
-              { label: 'x1', value: '1' },
-              { label: 'x2', value: '2' },
-              { label: 'x3', value: '3' },
-              { label: 'x4', value: '4' }
-            ]
+            options: [...IMAGE_RESOLUTION_OPTIONS]
           },
           {
             type: 'select',
             id: `outfmt_${idSeed}`,
             value: 'png',
-            options: [
-              { label: 'PNG', value: 'png' },
-              { label: 'JPG', value: 'jpg' }
-            ]
+            options: [...OUTPUT_FORMAT_OPTIONS]
           }
         ],
         inputs: [{ ...IMAGE_GENERATOR_PROMPT_INPUT }, { ...IMAGE_GENERATOR_IMAGE_INPUT }],
         outputs: [{ ...IMAGE_GENERATOR_OUTPUT }],
         preview: { type: 'placeholder', text: 'Describe the image you want to generate...' }
+      },
+      'video-generator': {
+        title: 'Video Generator',
+        label: 'Video Generator',
+        icon: 'video',
+        runnable: true,
+        controls: [
+          {
+            type: 'textarea',
+            id: `prompt_${idSeed}`,
+            value: '',
+            placeholder: 'Describe the video you want to generate...'
+          },
+          {
+            type: 'select',
+            id: `model_${idSeed}`,
+            value: DEFAULT_VIDEO_MODEL,
+            options: [...VIDEO_MODEL_OPTIONS]
+          },
+          {
+            type: 'select',
+            id: `aspect_${idSeed}`,
+            value: '16:9',
+            options: [...WIDE_ASPECT_RATIO_OPTIONS]
+          },
+          {
+            type: 'select',
+            id: `duration_${idSeed}`,
+            value: '5',
+            options: [...KLING_30_DURATION_OPTIONS]
+          },
+          {
+            type: 'select',
+            id: `mode_${idSeed}`,
+            value: 'pro',
+            options: [...KLING_MODE_OPTIONS]
+          },
+          {
+            type: 'select',
+            id: `sound_${idSeed}`,
+            value: 'false',
+            options: [...SOUND_OPTIONS]
+          },
+          {
+            type: 'select',
+            id: `char_orient_${idSeed}`,
+            value: 'video',
+            options: [...CHARACTER_ORIENTATION_OPTIONS]
+          },
+          {
+            type: 'select',
+            id: `multi_shots_${idSeed}`,
+            value: 'false',
+            options: [...MULTI_SHOT_OPTIONS]
+          },
+          {
+            type: 'textarea',
+            id: `multi_prompt_${idSeed}`,
+            value: 'Aerial sweep over the skyline at sunset | 3\nClose-up of neon reflections in rain puddles | 2',
+            placeholder: 'Shot prompt | duration'
+          },
+          {
+            type: 'select',
+            id: `vres_${idSeed}`,
+            value: '480p',
+            options: [...GROK_VIDEO_RESOLUTION_OPTIONS]
+          }
+        ],
+        inputs: [
+          { ...VIDEO_GENERATOR_PROMPT_INPUT },
+          { ...VIDEO_GENERATOR_IMAGE_INPUT },
+          { ...VIDEO_GENERATOR_VIDEO_INPUT },
+          { id: 'multi-prompt-in', label: 'Multi-shot', type: 'prompt' },
+          { id: 'kling-elements-in', label: 'Elements', type: 'asset' }
+        ],
+        outputs: [{ ...VIDEO_GENERATOR_OUTPUT }],
+        preview: { type: 'placeholder', text: 'Describe the video you want to generate...' }
+      },
+      agent: {
+        title: 'Agent',
+        label: 'Agent',
+        icon: 'align-left',
+        runnable: true,
+        controls: [
+          {
+            type: 'textarea',
+            id: `prompt_${idSeed}`,
+            value: '',
+            placeholder: 'Ask the model to write, summarize, or transform...'
+          },
+          {
+            type: 'select',
+            id: `model_${idSeed}`,
+            value: DEFAULT_AGENT_MODEL,
+            options: [...AGENT_MODEL_OPTIONS]
+          },
+          {
+            type: 'select',
+            id: `reasoning_${idSeed}`,
+            value: 'high',
+            options: [...REASONING_EFFORT_OPTIONS]
+          }
+        ],
+        inputs: [{ ...AGENT_PROMPT_INPUT }, { ...AGENT_IMAGE_INPUT }],
+        outputs: [{ ...AGENT_OUTPUT }],
+        preview: { type: 'placeholder', text: 'Ask the model to produce text.' }
       }
     };
 
@@ -1386,7 +1872,14 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       id: `node_${idSeed}`,
       type: kind,
       position,
-      style: kind === 'image-generator' ? { ...DEFAULT_IMAGE_GENERATOR_NODE_SIZE } : { ...DEFAULT_TEXT_PROMPT_NODE_SIZE },
+      style:
+        kind === 'image-generator'
+          ? { ...DEFAULT_IMAGE_GENERATOR_NODE_SIZE }
+          : kind === 'video-generator'
+            ? { ...DEFAULT_VIDEO_GENERATOR_NODE_SIZE }
+            : kind === 'agent'
+              ? { ...DEFAULT_AGENT_NODE_SIZE }
+              : { ...DEFAULT_TEXT_PROMPT_NODE_SIZE },
       data: {
         ...template,
         status: 'idle'
@@ -1891,7 +2384,13 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     let hasChanges = false;
 
     const normalizedNodes = nodes.map((node) => {
-      if (isCanonicalMainNode(node) || isCanonicalTextPromptNode(node) || isCanonicalImageGeneratorNode(node)) {
+      if (
+        isCanonicalMainNode(node) ||
+        isCanonicalTextPromptNode(node) ||
+        isCanonicalImageGeneratorNode(node) ||
+        isCanonicalVideoGeneratorNode(node) ||
+        isCanonicalAgentNode(node)
+      ) {
         return node;
       }
 
@@ -1905,6 +2404,17 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         (node.type === 'base' && node.data.icon === 'image')
       ) {
         return buildCanonicalImageGeneratorNode(node);
+      }
+
+      if (
+        node.type === 'video-generator' ||
+        (node.type === 'base' && node.data.icon === 'video')
+      ) {
+        return buildCanonicalVideoGeneratorNode(node);
+      }
+
+      if (node.type === 'agent') {
+        return buildCanonicalAgentNode(node);
       }
 
       return buildCanonicalMainNode(node);
@@ -1942,6 +2452,10 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
             ? TEXT_PROMPT_OUTPUT.id
             : sourceNode.type === 'image-generator'
               ? IMAGE_GENERATOR_OUTPUT.id
+              : sourceNode.type === 'video-generator'
+                ? VIDEO_GENERATOR_OUTPUT.id
+                : sourceNode.type === 'agent'
+                  ? AGENT_OUTPUT.id
               : MAIN_NODE_OUTPUT.id;
 
         const normalizedTargetHandle =
@@ -1949,7 +2463,29 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
             ? edge.targetHandle === IMAGE_GENERATOR_IMAGE_INPUT.id
               ? IMAGE_GENERATOR_IMAGE_INPUT.id
               : IMAGE_GENERATOR_PROMPT_INPUT.id
-            : MAIN_NODE_INPUT.id;
+            : targetNode.type === 'video-generator'
+              ? handleIdMatches(edge.targetHandle, [VIDEO_GENERATOR_IMAGE_INPUT.id])
+                ? VIDEO_GENERATOR_IMAGE_INPUT.id
+                : handleIdMatches(edge.targetHandle, [VIDEO_GENERATOR_VIDEO_INPUT.id])
+                  ? VIDEO_GENERATOR_VIDEO_INPUT.id
+                  : edge.targetHandle && (
+                    edge.targetHandle === 'multi-prompt-in' ||
+                    edge.targetHandle.startsWith('multi-prompt-in_') ||
+                    edge.targetHandle.startsWith('multi-prompt-in-')
+                  )
+                    ? 'multi-prompt-in'
+                    : edge.targetHandle && (
+                      edge.targetHandle === 'kling-elements-in' ||
+                      edge.targetHandle.startsWith('kling-elements-in_') ||
+                      edge.targetHandle.startsWith('kling-elements-in-')
+                    )
+                      ? 'kling-elements-in'
+                      : VIDEO_GENERATOR_PROMPT_INPUT.id
+              : targetNode.type === 'agent'
+                ? handleIdMatches(edge.targetHandle, [AGENT_IMAGE_INPUT.id])
+                  ? AGENT_IMAGE_INPUT.id
+                  : AGENT_PROMPT_INPUT.id
+                : MAIN_NODE_INPUT.id;
 
         const connectionType = getConnectionType({
           source: sourceNode.id,
@@ -2243,29 +2779,30 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     };
   }, [handleCutSelection, handleRedo, handleUndo]);
 
-  const isRunnableMediaNode = useCallback((node: Node<NodeData>) =>
+  const isRunnableNode = useCallback((node: Node<NodeData>) =>
     node.type === 'image-generator' ||
     node.type === 'video-generator' ||
+    node.type === 'agent' ||
     (node.type === 'media' && node.data.type === 'video') ||
-    (node.type === 'base' && node.data.icon === 'video')
+    (node.type === 'base' && (node.data.icon === 'video' || node.data.icon === 'image'))
   , []);
 
   const getRunnableNode = useCallback((nodeList: Node<NodeData>[], nodeId?: string) => {
     if (nodeId) {
       const requestedNode = nodeList.find((node) => node.id === nodeId);
-      if (requestedNode && isRunnableMediaNode(requestedNode)) {
+      if (requestedNode && isRunnableNode(requestedNode)) {
         return requestedNode;
       }
       return null;
     }
 
-    const selectedNode = nodeList.find((node) => node.selected && isRunnableMediaNode(node));
+    const selectedNode = nodeList.find((node) => node.selected && isRunnableNode(node));
     if (selectedNode) {
       return selectedNode;
     }
 
-    return nodeList.find((node) => isRunnableMediaNode(node)) ?? null;
-  }, [isRunnableMediaNode]);
+    return nodeList.find((node) => isRunnableNode(node)) ?? null;
+  }, [isRunnableNode]);
 
   const runSingleNode = useCallback(async (nodeId: string) => {
     const currentState = useCanvasStore.getState();
@@ -2282,12 +2819,28 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       runnableNode.type === 'video-generator' ||
       (runnableNode.type === 'media' && runnableNode.data.type === 'video') ||
       (runnableNode.type === 'base' && runnableNode.data.icon === 'video');
+    const isAgent = runnableNode.type === 'agent';
 
-    let modelToUse = isImageGen ? 'nano-banana-pro' : 'kling-3.0/video';
+    let modelToUse = isImageGen
+      ? DEFAULT_IMAGE_MODEL
+      : isAgent
+        ? DEFAULT_AGENT_MODEL
+        : DEFAULT_VIDEO_MODEL;
     const modelControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('model_'));
     if (modelControl?.value) {
       modelToUse = modelControl.value;
     }
+
+    const readRawSelectControlValue = (prefix: string) => {
+      const control = runnableNode.data?.controls?.find((c: any) => c.type === 'select' && c.id.startsWith(prefix));
+      return typeof control?.value === 'string' ? control.value : undefined;
+    };
+
+    const imageSchema = isImageGen ? getImageNodeUiSchema(modelToUse) : null;
+    const videoSchema = isVideoGen
+      ? getVideoNodeUiSchema(modelToUse, { multiShots: readRawSelectControlValue('multi_shots_') === 'true' })
+      : null;
+    const agentSchema = isAgent ? getAgentNodeUiSchema(modelToUse) : null;
 
     const getConnectedSourceNodes = (targetHandleIds: string[]) =>
       currentEdges
@@ -2303,10 +2856,15 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       getConnectedSourceNodes(targetHandleIds)[0];
 
     const extractPrompt = (node?: Node<NodeData>) => {
+      if (typeof node?.data?.outputText === 'string' && node.data.outputText.trim().length > 0) {
+        return node.data.outputText;
+      }
+
       const control = node?.data?.controls?.find?.((c: any) => c.type === 'textarea');
       if (control?.value) {
         return control.value as string;
       }
+
       return node?.data?.text;
     };
 
@@ -2322,11 +2880,23 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       return node.data.mediaUrl;
     };
 
+    const extractVideoUrl = (node?: Node<NodeData>) => {
+      if (!node) {
+        return undefined;
+      }
+
+      if (node.data.preview?.type === 'video') {
+        return node.data.preview.url;
+      }
+
+      return node.data.mediaUrl;
+    };
+
     const promptSourceNodes = getConnectedSourceNodes(['prompt-in', 'style_in', 'prompt_in']);
     const connectedPromptNode = promptSourceNodes.find((node) => node.type === 'prompt-list') ?? promptSourceNodes[0];
     const connectedPromptSections = extractPromptListSectionsFromNode(connectedPromptNode);
 
-    let promptText = 'Cinematic industrial shot with mannequin silhouette';
+    let promptText = '';
     const promptControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('prompt_'));
     if (connectedPromptSections.length > 0) {
       promptText = connectedPromptSections[0];
@@ -2350,35 +2920,39 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       }
     }
 
+    if (!promptText.trim()) {
+      throw new Error('Prompt is required.');
+    }
+
     let aspectRatio = '16:9';
-    const aspectControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('aspect_'));
-    if (aspectControl?.value) {
-      aspectRatio = aspectControl.value;
+    if (imageSchema) {
+      aspectRatio = normalizeSchemaSelectValue(imageSchema, 'aspect_', readRawSelectControlValue('aspect_'));
+    } else if (videoSchema) {
+      aspectRatio = normalizeSchemaSelectValue(videoSchema, 'aspect_', readRawSelectControlValue('aspect_'));
     }
 
     let resolution = '1K';
-    let amount = 1;
     let outputFormat: 'png' | 'jpg' = 'png';
     if (isImageGen) {
-      const resControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('res_'));
-      if (resControl?.value) {
-        resolution = resControl.value;
-      }
-
-      const amountControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('amount_'));
-      if (amountControl?.value) {
-        amount = parseInt(amountControl.value, 10) || 1;
-      }
-
-      const outputFormatControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('outfmt_'));
-      if (outputFormatControl?.value === 'png' || outputFormatControl?.value === 'jpg') {
-        outputFormat = outputFormatControl.value;
+      if (imageSchema) {
+        resolution = normalizeSchemaSelectValue(imageSchema, 'res_', readRawSelectControlValue('res_'));
+        const normalizedOutputFormat = normalizeSchemaSelectValue(
+          imageSchema,
+          'outfmt_',
+          readRawSelectControlValue('outfmt_')
+        );
+        if (normalizedOutputFormat === 'png' || normalizedOutputFormat === 'jpg') {
+          outputFormat = normalizedOutputFormat;
+        }
       }
     }
 
     let duration = '5';
-    let mode: 'std' | 'pro' = 'pro';
+    let mode = 'pro';
     let sound = false;
+    let characterOrientation: 'image' | 'video' = 'video';
+    let reasoningEffort: 'low' | 'high' = 'high';
+    let videoResolution = '480p';
     let multiShots = false;
     let multiPrompt: KlingMultiPromptItem[] = [];
     let klingElements: KlingElementParameter[] = [];
@@ -2386,26 +2960,31 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     const connectedImageNode = imageSourceNodes.find((node) => node.type === 'image-list') ?? imageSourceNodes[0];
     const connectedImageSections = extractImageListSectionsFromNode(connectedImageNode);
     const referenceImageUrl = extractImageUrl(connectedImageNode);
+    const connectedVideoNode = getConnectedSourceNode(['video-in', 'video_in']);
+    const referenceVideoUrl = extractVideoUrl(connectedVideoNode);
 
     if (isVideoGen) {
-      const durationControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('duration_'));
-      if (durationControl?.value) {
-        duration = durationControl.value;
+      if (videoSchema) {
+        duration = normalizeSchemaSelectValue(videoSchema, 'duration_', readRawSelectControlValue('duration_'));
+        mode = normalizeSchemaSelectValue(videoSchema, 'mode_', readRawSelectControlValue('mode_'));
+        sound = normalizeSchemaSelectValue(videoSchema, 'sound_', readRawSelectControlValue('sound_')) === 'true';
+        const normalizedOrientation = normalizeSchemaSelectValue(
+          videoSchema,
+          'char_orient_',
+          readRawSelectControlValue('char_orient_')
+        );
+        if (normalizedOrientation === 'image' || normalizedOrientation === 'video') {
+          characterOrientation = normalizedOrientation;
+        }
+        videoResolution = normalizeSchemaSelectValue(videoSchema, 'vres_', readRawSelectControlValue('vres_'));
       }
 
-      const modeControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('mode_'));
-      if (modeControl?.value === 'std' || modeControl?.value === 'pro') {
-        mode = modeControl.value;
-      }
-
-      const soundControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('sound_'));
-      sound = soundControl?.value === 'true';
-
-      const multiShotsControl = runnableNode.data?.controls?.find((c: any) => c.id.startsWith('multi_shots_'));
       const connectedMultiPromptNode = getConnectedSourceNode(['multi-prompt-in', 'multi_prompt_in']);
       const connectedMultiPromptShots = extractMultiPromptFromNode(connectedMultiPromptNode);
       multiShots = modelToUse === 'kling-3.0/video' && (
-        multiShotsControl?.value === 'true' ||
+        (videoSchema
+          ? normalizeSchemaSelectValue(videoSchema, 'multi_shots_', readRawSelectControlValue('multi_shots_')) === 'true'
+          : readRawSelectControlValue('multi_shots_') === 'true') ||
         connectedMultiPromptShots.length > 0
       );
 
@@ -2418,7 +2997,13 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       }
 
       const connectedKlingElementsNode = getConnectedSourceNode(['kling-elements-in', 'kling_elements_in']);
-      klingElements = extractKlingElementsFromNode(connectedKlingElementsNode);
+      const attachedKlingElements = videoModelSupportsKlingElements(modelToUse)
+        ? buildKlingElementParametersFromSelection(getAttachedElementLibraryItems(runnableNode))
+        : [];
+      klingElements = [
+        ...attachedKlingElements,
+        ...extractKlingElementsFromNode(connectedKlingElementsNode)
+      ];
 
       if (multiShots && multiPrompt.length === 0) {
         const fallbackDuration = clampShotDuration(Number.parseInt(duration, 10) || 5);
@@ -2428,6 +3013,31 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       if (multiShots) {
         sound = true;
       }
+    }
+
+    if (isAgent) {
+      if (agentSchema) {
+        const normalizedReasoning = normalizeSchemaSelectValue(
+          agentSchema,
+          'reasoning_',
+          readRawSelectControlValue('reasoning_')
+        );
+        if (normalizedReasoning === 'low' || normalizedReasoning === 'high') {
+          reasoningEffort = normalizedReasoning;
+        }
+      }
+    }
+
+    if (isImageGen && imageModelRequiresReference(modelToUse) && !referenceImageUrl) {
+      throw new Error('This image model requires an image input.');
+    }
+
+    if (isVideoGen && videoModelRequiresImage(modelToUse) && !referenceImageUrl) {
+      throw new Error('This video model requires an image input.');
+    }
+
+    if (isVideoGen && videoModelRequiresVideo(modelToUse) && !referenceVideoUrl) {
+      throw new Error('This video model requires a video input.');
     }
 
     const promptBatchValues = connectedPromptSections;
@@ -2440,13 +3050,15 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       iterationReferenceImageUrl?: string
     ): Parameters<typeof executeWorkflow>[0]['parameters'] => {
       const parameters: Parameters<typeof executeWorkflow>[0]['parameters'] = {
-        prompt: iterationPrompt,
-        aspectRatio
+        prompt: iterationPrompt
       };
+
+      if (isImageGen || isVideoGen) {
+        parameters.aspectRatio = aspectRatio;
+      }
 
       if (isImageGen) {
         parameters.resolution = resolution;
-        parameters.amount = amount;
         parameters.outputFormat = outputFormat;
         if (iterationReferenceImageUrl) {
           parameters.referenceImageUrl = iterationReferenceImageUrl;
@@ -2456,7 +3068,9 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       if (isVideoGen) {
         parameters.duration = duration;
         parameters.mode = mode;
+        parameters.resolution = videoResolution;
         parameters.sound = sound;
+        parameters.characterOrientation = characterOrientation;
         parameters.multiShots = multiShots;
         if (multiShots) {
           parameters.multiPrompt = multiPrompt;
@@ -2464,6 +3078,16 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         if (klingElements.length > 0) {
           parameters.klingElements = klingElements;
         }
+        if (iterationReferenceImageUrl) {
+          parameters.referenceImageUrl = iterationReferenceImageUrl;
+        }
+        if (referenceVideoUrl) {
+          parameters.referenceVideoUrl = referenceVideoUrl;
+        }
+      }
+
+      if (isAgent) {
+        parameters.reasoningEffort = reasoningEffort;
         if (iterationReferenceImageUrl) {
           parameters.referenceImageUrl = iterationReferenceImageUrl;
         }
@@ -2482,19 +3106,19 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         parameters
       });
 
-      return new Promise<string | undefined>((resolve, reject) => {
+      return new Promise<{ mediaUrl?: string; textOutput?: string }>((resolve, reject) => {
         let settled = false;
         let fallbackAttempted = false;
         let unsubscribe: () => void = () => undefined;
 
-        const settleSuccess = (mediaUrl?: string) => {
+        const settleSuccess = (result: { mediaUrl?: string; textOutput?: string }) => {
           if (settled) {
             return;
           }
 
           settled = true;
           unsubscribe();
-          resolve(mediaUrl);
+          resolve(result);
         };
 
         const settleFailure = (message?: string) => {
@@ -2517,7 +3141,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           try {
             const latest = await getJobStatus(executeResult.jobId, workspaceId);
             if (latest.status === 'succeeded') {
-              settleSuccess(latest.mediaUrl);
+              settleSuccess({ mediaUrl: latest.mediaUrl, textOutput: latest.textOutput });
               return;
             }
 
@@ -2535,7 +3159,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
         unsubscribe = subscribeToJobStatus(executeResult.jobId, workspaceId, {
           onUpdate: (job) => {
             if (job.status === 'succeeded') {
-              settleSuccess(job.mediaUrl);
+              settleSuccess({ mediaUrl: job.mediaUrl, textOutput: job.textOutput });
               return;
             }
 
@@ -2556,10 +3180,14 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     };
 
     clearNodeResultMedia(runnableNode.id);
+    if (isAgent) {
+      setNodeOutputText(runnableNode.id, '');
+    }
     markNode(runnableNode.id, 'processing');
 
     try {
       let lastMediaUrl: string | undefined;
+      let lastTextOutput = '';
 
       for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
         const iterationPrompt = pickBatchedValue(promptBatchValues, batchIndex) ?? promptText;
@@ -2568,15 +3196,25 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           referenceImageUrl;
 
         const iterationParameters = buildParametersForIteration(iterationPrompt, iterationReferenceImageUrl);
-        const mediaUrl = await runSingleWorkflow(iterationParameters);
+        const result = await runSingleWorkflow(iterationParameters);
+        const mediaUrl = result.mediaUrl;
+        const textOutput = result.textOutput?.trim() ?? '';
         if (mediaUrl) {
           lastMediaUrl = mediaUrl;
           appendNodeResultMedia(runnableNode.id, { type: resultMediaType, url: mediaUrl });
+        }
+        if (textOutput) {
+          lastTextOutput = textOutput;
+          setNodeOutputText(runnableNode.id, textOutput);
         }
 
         if (batchIndex < batchCount - 1) {
           markNode(runnableNode.id, 'processing', lastMediaUrl);
         }
+      }
+
+      if (isAgent && !lastTextOutput) {
+        throw new Error('The model returned no text output.');
       }
 
       markNode(runnableNode.id, 'succeeded', lastMediaUrl);
@@ -2589,7 +3227,7 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       pushErrorToast('Run failed', `${nodeLabel}: ${message}`);
       throw new Error(message);
     }
-  }, [appendNodeResultMedia, clearNodeResultMedia, getRunnableNode, markNode, pushErrorToast, workspaceId]);
+  }, [appendNodeResultMedia, clearNodeResultMedia, getRunnableNode, markNode, pushErrorToast, setNodeOutputText, workspaceId]);
 
   const getExecutionPlanForMode = useCallback((startNodeId: string, mode: RunNodeMode) => {
     const currentState = useCanvasStore.getState();
@@ -2611,9 +3249,9 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
     const orderedScopedIds = topologicallySortNodeIds(scopedNodeIds, currentEdges, nodeOrder);
     return orderedScopedIds.filter((id) => {
       const node = currentNodes.find((candidate) => candidate.id === id);
-      return !!node && isRunnableMediaNode(node);
+      return !!node && isRunnableNode(node);
     });
-  }, [isRunnableMediaNode]);
+  }, [isRunnableNode]);
 
   const onRun = useCallback(async (requestedNodeId?: string, mode: RunNodeMode = 'node-only') => {
     if (running) {
@@ -2682,6 +3320,49 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
   }, [handleQuickConnectNode]);
 
   useEffect(() => {
+    const onOpenElementLibraryNode = (event: Event) => {
+      const customEvent = event as CustomEvent<OpenElementLibraryNodeEventDetail>;
+      const nodeId = customEvent.detail?.nodeId;
+      if (!nodeId) {
+        return;
+      }
+
+      void openElementLibraryPicker(nodeId);
+    };
+
+    window.addEventListener(OPEN_ELEMENT_LIBRARY_NODE_EVENT, onOpenElementLibraryNode as EventListener);
+    return () => {
+      window.removeEventListener(OPEN_ELEMENT_LIBRARY_NODE_EVENT, onOpenElementLibraryNode as EventListener);
+    };
+  }, [openElementLibraryPicker]);
+
+  useEffect(() => {
+    const onRemoveElementLibraryItem = (event: Event) => {
+      const customEvent = event as CustomEvent<RemoveElementLibraryItemEventDetail>;
+      const nodeId = customEvent.detail?.nodeId;
+      const itemId = customEvent.detail?.itemId;
+      if (!nodeId || !itemId) {
+        return;
+      }
+
+      const targetNode = nodes.find((node) => node.id === nodeId);
+      if (!targetNode) {
+        return;
+      }
+
+      updateNodeAttachedElementLibraryItems(
+        nodeId,
+        removeElementLibrarySelectionItem(getAttachedElementLibraryItems(targetNode), itemId)
+      );
+    };
+
+    window.addEventListener(REMOVE_ELEMENT_LIBRARY_ITEM_EVENT, onRemoveElementLibraryItem as EventListener);
+    return () => {
+      window.removeEventListener(REMOVE_ELEMENT_LIBRARY_ITEM_EVENT, onRemoveElementLibraryItem as EventListener);
+    };
+  }, [nodes, updateNodeAttachedElementLibraryItems]);
+
+  useEffect(() => {
     const onDeleteNode = (event: Event) => {
       const customEvent = event as CustomEvent<DeleteNodeEventDetail>;
       const nodeId = customEvent.detail?.nodeId;
@@ -2697,6 +3378,16 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
       window.removeEventListener(DELETE_NODE_EVENT, onDeleteNode as EventListener);
     };
   }, [handleDeleteNode]);
+
+  useEffect(() => {
+    if (!elementLibraryPickerNodeId) {
+      return;
+    }
+
+    if (!nodes.some((node) => node.id === elementLibraryPickerNodeId)) {
+      closeElementLibraryPicker();
+    }
+  }, [closeElementLibraryPicker, elementLibraryPickerNodeId, nodes]);
 
   return (
     <main className="flex h-full min-h-0 flex-col">
@@ -2819,6 +3510,28 @@ function CanvasInner({ workspaceId }: CanvasWorkspaceProps) {
           <Background gap={focusMode ? 48 : 24} size={1.5} color="rgba(255,255,255,0.1)" />
         </ReactFlow>
       </section>
+
+      <ElementLibraryPickerModal
+        open={elementLibraryPickerNodeId !== null}
+        items={elementLibraryItems}
+        loading={elementLibraryLoading}
+        query={elementLibraryQuery}
+        selectedIds={selectedElementLibraryIds}
+        status={elementLibraryStatus}
+        onQueryChange={setElementLibraryQuery}
+        onRefresh={() => {
+          void loadElementLibrary();
+        }}
+        onToggleItem={(itemId) => {
+          setSelectedElementLibraryIds((current) =>
+            current.includes(itemId)
+              ? current.filter((value) => value !== itemId)
+              : [...current, itemId]
+          );
+        }}
+        onClose={closeElementLibraryPicker}
+        onApply={applyElementLibrarySelection}
+      />
 
       {errorToasts.length > 0 ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[120] flex justify-center px-3">
