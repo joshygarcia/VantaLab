@@ -5,6 +5,7 @@ import { UpdateWorkspaceSettingsDto } from './dto/update-workspace.dto';
 import { UpdateKlingElementsLibraryDto } from './dto/update-kling-elements-library.dto';
 import { UploadWorkspaceFileDto } from './dto/upload-workspace-file.dto';
 import { CreateCustomSpaceDto } from './dto/create-custom-space.dto';
+import { CreateSpaceFromTemplateDto } from './dto/create-space-from-template.dto';
 import { UpdateCustomSpaceDto } from './dto/update-custom-space.dto';
 import { UpdateWorkspaceCanvasDto } from './dto/update-workspace-canvas.dto';
 
@@ -114,6 +115,17 @@ export class WorkspacesController {
     ) {
         const user = this.getAuthenticatedUser(request);
         return this.workspacesService.createCustomSpace(id, payload, user.workspaceIds, user.id);
+    }
+
+    @Post(':id/spaces/from-template')
+    @UseGuards(JwtAuthGuard)
+    createSpaceFromTemplate(
+        @Param('id') id: string,
+        @Body() payload: CreateSpaceFromTemplateDto,
+        @Req() request: AuthenticatedRequest
+    ) {
+        const user = this.getAuthenticatedUser(request);
+        return this.workspacesService.createSpaceFromTemplate(id, payload, user.workspaceIds, user.id);
     }
 
     @Delete(':id/spaces/:spaceId')

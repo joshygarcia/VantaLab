@@ -8,8 +8,10 @@ import { UpdateWorkspaceSettingsDto } from './dto/update-workspace.dto';
 import { UpdateKlingElementsLibraryDto } from './dto/update-kling-elements-library.dto';
 import { UploadWorkspaceFileDto } from './dto/upload-workspace-file.dto';
 import { CreateCustomSpaceDto, SpaceProtection } from './dto/create-custom-space.dto';
+import { CreateSpaceFromTemplateDto } from './dto/create-space-from-template.dto';
 import { UpdateCustomSpaceDto } from './dto/update-custom-space.dto';
 import { UpdateWorkspaceCanvasDto } from './dto/update-workspace-canvas.dto';
+import { FeaturedTemplateKey, getFeaturedTemplateDefinition } from './template-canvas-registry';
 
 type KieUploadResponse = {
     success?: boolean;
@@ -635,6 +637,103 @@ export class WorkspacesService {
         };
     }
 
+    private buildCustomSpaceId(name: string) {
+        const slug = name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        return `${slug || 'space'}-${randomUUID().slice(0, 8)}`;
+    }
+
+    private normalizeSharedWorkspaceIds(
+        ownerWorkspaceId: string,
+        sharedWorkspaceIds?: string[]
+    ) {
+        return Array.isArray(sharedWorkspaceIds)
+            ? Array.from(new Set(sharedWorkspaceIds.filter((entry) => entry.trim().length > 0 && entry !== ownerWorkspaceId)))
+            : [];
+    }
+
+    private validateCustomSpaceSharing(
+        protection: SpaceProtection,
+        sharedWorkspaceIds: string[],
+        userWorkspaceIds: string[]
+    ) {
+        if (sharedWorkspaceIds.some((workspaceId) => !userWorkspaceIds.includes(workspaceId))) {
+            throw new UnauthorizedException('Cannot share space with workspaces outside your access scope');
+        }
+
+        if (protection !== 'team-shared' && sharedWorkspaceIds.length > 0) {
+            throw new BadRequestException('sharedWorkspaceIds are only supported for team-shared spaces');
+        }
+
+        return protection === 'team-shared'
+            ? sharedWorkspaceIds
+            : [];
+    }
+
+    private buildCustomSpaceItem(
+        ownerWorkspaceId: string,
+        spaceId: string,
+        name: string,
+        description: string,
+        protection: SpaceProtection,
+        sharedWorkspaceIds: string[]
+    ): CustomSpaceItem {
+        return {
+            id: spaceId,
+            ownerWorkspaceId,
+            name,
+            description,
+            protection,
+            sharedWorkspaceIds,
+            createdAt: new Date().toISOString()
+        };
+    }
+
+    private async persistCustomSpace(spaceId: string, item: CustomSpaceItem, userId: string) {
+        await this.prisma.workspace.upsert({
+            where: { id: spaceId },
+            update: {
+                name: item.name,
+                customSpaceConfig: JSON.stringify(this.toCustomSpaceConfig(item))
+            },
+            create: {
+                id: spaceId,
+                userId,
+                name: item.name,
+                customSpaceConfig: JSON.stringify(this.toCustomSpaceConfig(item))
+            }
+        });
+    }
+
+    private async persistCanvasState(spaceId: string, canvasState: WorkspaceCanvasState, userId: string) {
+        await (this.prisma as any).workspace.upsert({
+            where: { id: spaceId },
+            update: {
+                canvasState: JSON.stringify(canvasState)
+            },
+            create: {
+                id: spaceId,
+                userId,
+                name: `Workspace ${spaceId}`,
+                canvasState: JSON.stringify(canvasState)
+            }
+        });
+    }
+
+    private buildTemplateCanvasState(templateKey: FeaturedTemplateKey, spaceId: string): WorkspaceCanvasState {
+        const template = getFeaturedTemplateDefinition(templateKey);
+        const canvas = template.buildCanvas(`template_${this.sanitizeStoragePathSegment(spaceId) || spaceId}`);
+
+        return {
+            nodes: canvas.nodes,
+            edges: canvas.edges,
+            viewport: canvas.viewport
+        };
+    }
+
     private async writeCustomSpacesStore(store: Record<string, CustomSpaceItem[]>) {
         const dir = path.dirname(this.customSpacesPath);
         await fs.mkdir(dir, { recursive: true });
@@ -902,53 +1001,72 @@ export class WorkspacesService {
         const trimmedName = payload.name.trim();
         const trimmedDescription = payload.description?.trim() || 'Custom workflow space';
         const protection = payload.protection ?? 'standard';
-        const sharedWorkspaceIds = Array.isArray(payload.sharedWorkspaceIds)
-            ? Array.from(new Set(payload.sharedWorkspaceIds.filter((entry) => entry.trim().length > 0 && entry !== id)))
-            : [];
+        const requestedSharedWorkspaceIds = this.normalizeSharedWorkspaceIds(id, payload.sharedWorkspaceIds);
+        const sharedWorkspaceIds = this.validateCustomSpaceSharing(protection, requestedSharedWorkspaceIds, userWorkspaceIds);
 
-        if (sharedWorkspaceIds.some((workspaceId) => !userWorkspaceIds.includes(workspaceId))) {
-            throw new UnauthorizedException('Cannot share space with workspaces outside your access scope');
-        }
+        const spaceId = this.buildCustomSpaceId(trimmedName);
 
-        if (protection !== 'team-shared' && sharedWorkspaceIds.length > 0) {
-            throw new BadRequestException('sharedWorkspaceIds are only supported for team-shared spaces');
-        }
-
-        const slug = trimmedName
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '');
-
-        const spaceId = `${slug || 'space'}-${randomUUID().slice(0, 8)}`;
-
-        const nextItem: CustomSpaceItem = {
-            id: spaceId,
-            ownerWorkspaceId: id,
-            name: trimmedName,
-            description: trimmedDescription,
+        const nextItem = this.buildCustomSpaceItem(
+            id,
+            spaceId,
+            trimmedName,
+            trimmedDescription,
             protection,
-            sharedWorkspaceIds: protection === 'team-shared' ? sharedWorkspaceIds : [],
-            createdAt: new Date().toISOString()
-        };
+            sharedWorkspaceIds
+        );
 
-        await this.prisma.workspace.upsert({
-            where: { id: spaceId },
-            update: {
-                name: trimmedName,
-                customSpaceConfig: JSON.stringify(this.toCustomSpaceConfig(nextItem))
-            },
-            create: {
-                id: spaceId,
-                userId,
-                name: trimmedName,
-                customSpaceConfig: JSON.stringify(this.toCustomSpaceConfig(nextItem))
-            }
-        });
+        await this.persistCustomSpace(spaceId, nextItem, userId);
 
         await this.syncLegacyCustomSpacesStore(id, spaceId, nextItem);
 
         return {
             item: nextItem
+        };
+    }
+
+    async createSpaceFromTemplate(
+        id: string,
+        payload: CreateSpaceFromTemplateDto,
+        userWorkspaceIds: string[],
+        userId: string | undefined
+    ) {
+        if (!userId) {
+            throw new UnauthorizedException('Missing authenticated user id');
+        }
+
+        this.assertWorkspaceAccess(id, userWorkspaceIds);
+
+        const template = getFeaturedTemplateDefinition(payload.templateKey as FeaturedTemplateKey);
+        if (!template) {
+            throw new BadRequestException('Unknown template key');
+        }
+
+        const trimmedName = payload.name.trim();
+        if (!trimmedName) {
+            throw new BadRequestException('Space name is required');
+        }
+
+        const trimmedDescription = payload.description?.trim() || template.description;
+        const protection = payload.protection ?? 'standard';
+        const requestedSharedWorkspaceIds = this.normalizeSharedWorkspaceIds(id, payload.sharedWorkspaceIds);
+        const sharedWorkspaceIds = this.validateCustomSpaceSharing(protection, requestedSharedWorkspaceIds, userWorkspaceIds);
+        const spaceId = this.buildCustomSpaceId(trimmedName);
+        const nextItem = this.buildCustomSpaceItem(
+            id,
+            spaceId,
+            trimmedName,
+            trimmedDescription,
+            protection,
+            sharedWorkspaceIds
+        );
+
+        await this.persistCustomSpace(spaceId, nextItem, userId);
+        await this.persistCanvasState(spaceId, this.buildTemplateCanvasState(payload.templateKey, spaceId), userId);
+        await this.syncLegacyCustomSpacesStore(id, spaceId, nextItem);
+
+        return {
+            item: nextItem,
+            canvasSeeded: true
         };
     }
 
