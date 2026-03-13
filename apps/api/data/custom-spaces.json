@@ -1,6 +1,15 @@
 {
   "local": [
     {
+      "id": "influencer-launch-qa-clone-593b17a6",
+      "ownerWorkspaceId": "local",
+      "name": "Influencer Launch QA Clone",
+      "description": "Pipeline for creating influencer portraits, clips, and publish-ready assets.",
+      "protection": "standard",
+      "sharedWorkspaceIds": [],
+      "createdAt": "2026-03-13T04:02:40.419Z"
+    },
+    {
       "id": "test-space-6c5c9557",
       "ownerWorkspaceId": "local",
       "name": "Test Space",
