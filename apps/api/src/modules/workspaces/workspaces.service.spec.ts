@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { WorkspacesService } from './workspaces.service';
 
 describe('WorkspacesService', () => {
@@ -217,5 +217,96 @@ describe('WorkspacesService', () => {
     });
 
     expect(prisma.workspace.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates a custom space from the influencer launch template and seeds its canvas', async () => {
+    const { prisma, service } = createService();
+
+    prisma.workspace.upsert
+      .mockResolvedValueOnce({
+        id: 'influencer-launch-1234abcd'
+      })
+      .mockResolvedValueOnce({
+        id: 'influencer-launch-1234abcd'
+      });
+
+    jest.spyOn(service as any, 'writeCustomSpacesStore').mockResolvedValue(undefined);
+
+    await expect(
+      (service as any).createSpaceFromTemplate(
+        'workspace-1',
+        {
+          templateKey: 'influencer-launch',
+          name: 'Influencer Launch Clone',
+          description: 'Clone of influencer launch',
+          protection: 'standard'
+        },
+        ['workspace-1'],
+        'user-1'
+      )
+    ).resolves.toEqual({
+      item: expect.objectContaining({
+        ownerWorkspaceId: 'workspace-1',
+        name: 'Influencer Launch Clone',
+        description: 'Clone of influencer launch',
+        protection: 'standard',
+        sharedWorkspaceIds: []
+      }),
+      canvasSeeded: true
+    });
+
+    expect(prisma.workspace.upsert).toHaveBeenCalledTimes(2);
+    expect(prisma.workspace.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: expect.any(String) },
+        update: expect.objectContaining({
+          canvasState: expect.any(String)
+        }),
+        create: expect.objectContaining({
+          canvasState: expect.any(String)
+        })
+      })
+    );
+
+    const canvasPayload = JSON.parse(
+      prisma.workspace.upsert.mock.calls[1][0].update.canvasState as string
+    ) as { nodes: unknown[]; edges: unknown[] };
+    expect(canvasPayload.nodes.length).toBeGreaterThan(0);
+    expect(canvasPayload.edges.length).toBeGreaterThan(0);
+  });
+
+  it('rejects an unknown template key when creating a space from template', async () => {
+    const { service } = createService();
+
+    await expect(
+      (service as any).createSpaceFromTemplate(
+        'workspace-1',
+        {
+          templateKey: 'unknown-template',
+          name: 'Invalid template clone',
+          protection: 'standard'
+        },
+        ['workspace-1'],
+        'user-1'
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects team-shared template cloning when shared workspaces are outside the access scope', async () => {
+    const { service } = createService();
+
+    await expect(
+      (service as any).createSpaceFromTemplate(
+        'workspace-1',
+        {
+          templateKey: 'content-batch',
+          name: 'Shared clone',
+          protection: 'team-shared',
+          sharedWorkspaceIds: ['workspace-9']
+        },
+        ['workspace-1', 'workspace-2'],
+        'user-1'
+      )
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
