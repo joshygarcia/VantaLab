@@ -1,14 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   createCustomSpace,
+  createSpaceFromTemplate,
   deleteCustomSpace,
   getUserWorkspaceIds,
   listCustomSpaces,
   updateCustomSpace,
-  CustomSpaceItem
+  CustomSpaceItem,
+  FeaturedTemplateKey
 } from '@/lib/api';
 import { Plus, X, Layers, Globe, Lock, Share2, Unlock } from 'lucide-react';
 import { useProjectContext } from '@/components/projects/project-context';
@@ -30,7 +33,8 @@ type TemplateSpace = {
   name: string;
   description: string;
   tags: string[];
-  workspaceId: string;
+  workspaceId?: string;
+  templateKey?: FeaturedTemplateKey;
   category: 'Marketing' | 'Product' | 'Social' | 'Operations';
   previewSrc: string;
   featured?: boolean;
@@ -42,7 +46,7 @@ const templateSpaces: TemplateSpace[] = [
     name: 'Influencer Launch Space',
     description: 'Pipeline for creating influencer portraits, clips, and publish-ready assets.',
     tags: ['Kling Elements', 'Image + Video', 'Social'],
-    workspaceId: 'template-influencer-launch',
+    templateKey: 'influencer-launch',
     category: 'Social',
     previewSrc: '/templates/influencer-launch.svg',
     featured: true
@@ -52,7 +56,7 @@ const templateSpaces: TemplateSpace[] = [
     name: 'Product Story Space',
     description: 'Generate product hero images and short narrative videos for campaigns.',
     tags: ['Product', 'Prompt Chains', 'Campaign'],
-    workspaceId: 'template-product-story',
+    templateKey: 'product-story',
     category: 'Product',
     previewSrc: '/templates/product-story.svg',
     featured: true
@@ -62,7 +66,7 @@ const templateSpaces: TemplateSpace[] = [
     name: 'Content Batch Space',
     description: 'Batch-ready setup for weekly content production in one shared workspace.',
     tags: ['Batch', 'Workflow', 'Ops'],
-    workspaceId: 'template-content-batch',
+    templateKey: 'content-batch',
     category: 'Operations',
     previewSrc: '/templates/content-batch.svg',
     featured: true
@@ -122,8 +126,11 @@ const protectionDescription: Record<SpaceProtection, string> = {
 
 const panelClass = STUDIO_PANEL_CLASS;
 const inputClass = studioInputClass;
+const isCloneableTemplate = (template: TemplateSpace): template is TemplateSpace & { templateKey: FeaturedTemplateKey } =>
+  typeof template.templateKey === 'string';
 
 export default function CanvasHubPage() {
+  const router = useRouter();
   const { activeSpace } = useProjectContext();
   const preferredWorkspaceId = activeSpace?.id ?? 'local';
   const [ownerWorkspaceId, setOwnerWorkspaceId] = useState(preferredWorkspaceId);
@@ -138,6 +145,12 @@ export default function CanvasHubPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [selectedTemplateCategory, setSelectedTemplateCategory] = useState<string>('All');
+  const [selectedFeaturedTemplate, setSelectedFeaturedTemplate] = useState<(TemplateSpace & { templateKey: FeaturedTemplateKey }) | null>(null);
+  const [templateCloneName, setTemplateCloneName] = useState('');
+  const [templateCloneDescription, setTemplateCloneDescription] = useState('');
+  const [templateCloneProtection, setTemplateCloneProtection] = useState<SpaceProtection>('standard');
+  const [templateCloneSharedWorkspaceIdsInput, setTemplateCloneSharedWorkspaceIdsInput] = useState('');
+  const [templateCloneSubmitting, setTemplateCloneSubmitting] = useState(false);
   const [editingSpace, setEditingSpace] = useState<CustomSpaceItem | null>(null);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -149,6 +162,7 @@ export default function CanvasHubPage() {
       if (e.key === 'Escape') {
         setIsCreateModalOpen(false);
         setIsTemplateModalOpen(false);
+        setSelectedFeaturedTemplate(null);
         setEditingSpace(null);
       }
     };
@@ -188,6 +202,18 @@ export default function CanvasHubPage() {
   useEffect(() => {
     void loadCustomSpaces(preferredWorkspaceId);
   }, [preferredWorkspaceId]);
+
+  const openTemplateCloneModal = (template: TemplateSpace) => {
+    if (!isCloneableTemplate(template)) {
+      return;
+    }
+
+    setSelectedFeaturedTemplate(template);
+    setTemplateCloneName(template.name);
+    setTemplateCloneDescription(template.description);
+    setTemplateCloneProtection('standard');
+    setTemplateCloneSharedWorkspaceIdsInput('');
+  };
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -298,6 +324,46 @@ export default function CanvasHubPage() {
       setEditingSpace(null);
     } catch {
       setStatus('Failed to update custom space');
+    }
+  };
+
+  const handleTemplateClone = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!selectedFeaturedTemplate) {
+      return;
+    }
+
+    const trimmedName = templateCloneName.trim();
+    if (!trimmedName) {
+      setStatus('Template clone name is required');
+      return;
+    }
+
+    const sharedWorkspaceIds = templateCloneSharedWorkspaceIdsInput
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    setTemplateCloneSubmitting(true);
+    try {
+      const response = await createSpaceFromTemplate(ownerWorkspaceId, {
+        templateKey: selectedFeaturedTemplate.templateKey,
+        name: trimmedName,
+        description: templateCloneDescription.trim() || undefined,
+        protection: templateCloneProtection,
+        sharedWorkspaceIds: templateCloneProtection === 'team-shared' ? sharedWorkspaceIds : undefined
+      });
+
+      setCustomSpaces((previous) => [response.item, ...previous]);
+      setStatus(`Created ${response.item.name} from template`);
+      setSelectedFeaturedTemplate(null);
+      setIsTemplateModalOpen(false);
+      router.push(`/canvas/${response.item.id}`);
+    } catch {
+      setStatus('Failed to create canvas from template');
+    } finally {
+      setTemplateCloneSubmitting(false);
     }
   };
 
@@ -416,9 +482,10 @@ export default function CanvasHubPage() {
 
           <div className="grid gap-3">
             {featuredTemplates.map((space) => (
-              <Link
+              <button
                 key={space.id}
-                href={`/canvas/${space.workspaceId}`}
+                type="button"
+                onClick={() => openTemplateCloneModal(space)}
                 className="group rounded-xl border border-studio-700 bg-studio-950/70 p-4 transition-colors hover:border-studio-600 hover:bg-studio-850"
               >
                 <div className="mb-3 overflow-hidden rounded-lg border border-studio-700 bg-studio-900">
@@ -443,7 +510,7 @@ export default function CanvasHubPage() {
                     </span>
                   ))}
                 </div>
-              </Link>
+              </button>
             ))}
           </div>
         </section>
@@ -587,32 +654,64 @@ export default function CanvasHubPage() {
                     <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">{category}</h3>
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {templates.map((template) => (
-                        <Link
-                          key={template.id}
-                          href={`/canvas/${template.workspaceId}`}
-                          onClick={() => setIsTemplateModalOpen(false)}
-                          className="group rounded-xl border border-studio-700 bg-studio-950/70 p-3 transition-colors hover:border-studio-600 hover:bg-studio-850"
-                        >
-                          <div className="overflow-hidden rounded-lg border border-studio-700 bg-studio-900">
-                            <img
-                              src={template.previewSrc}
-                              alt={`${template.name} preview`}
-                              className="h-28 w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                            />
-                          </div>
-                          <h4 className="mt-3 text-sm font-semibold text-zinc-100 group-hover:text-white">{template.name}</h4>
-                          <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{template.description}</p>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {template.tags.map((tag) => (
-                              <span
-                                key={tag}
-                                className="rounded-md border border-studio-700 bg-studio-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-zinc-400"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </Link>
+                        isCloneableTemplate(template) ? (
+                          <button
+                            key={template.id}
+                            type="button"
+                            onClick={() => {
+                              setIsTemplateModalOpen(false);
+                              openTemplateCloneModal(template);
+                            }}
+                            className="group rounded-xl border border-studio-700 bg-studio-950/70 p-3 text-left transition-colors hover:border-studio-600 hover:bg-studio-850"
+                          >
+                            <div className="overflow-hidden rounded-lg border border-studio-700 bg-studio-900">
+                              <img
+                                src={template.previewSrc}
+                                alt={`${template.name} preview`}
+                                className="h-28 w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                              />
+                            </div>
+                            <h4 className="mt-3 text-sm font-semibold text-zinc-100 group-hover:text-white">{template.name}</h4>
+                            <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{template.description}</p>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {template.tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="rounded-md border border-studio-700 bg-studio-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-zinc-400"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </button>
+                        ) : (
+                          <Link
+                            key={template.id}
+                            href={`/canvas/${template.workspaceId}`}
+                            onClick={() => setIsTemplateModalOpen(false)}
+                            className="group rounded-xl border border-studio-700 bg-studio-950/70 p-3 transition-colors hover:border-studio-600 hover:bg-studio-850"
+                          >
+                            <div className="overflow-hidden rounded-lg border border-studio-700 bg-studio-900">
+                              <img
+                                src={template.previewSrc}
+                                alt={`${template.name} preview`}
+                                className="h-28 w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                              />
+                            </div>
+                            <h4 className="mt-3 text-sm font-semibold text-zinc-100 group-hover:text-white">{template.name}</h4>
+                            <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{template.description}</p>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {template.tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="rounded-md border border-studio-700 bg-studio-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-zinc-400"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </Link>
+                        )
                       ))}
                     </div>
                   </section>
@@ -625,6 +724,112 @@ export default function CanvasHubPage() {
                 ) : null}
               </div>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedFeaturedTemplate ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setSelectedFeaturedTemplate(null);
+            }
+          }}
+        >
+          <div className={`${panelClass} w-full max-w-md p-6`}>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-studio-cream">Clone Template</h2>
+                <p className="mt-1 text-xs text-zinc-400">
+                  Create a new editable canvas from {selectedFeaturedTemplate.name}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedFeaturedTemplate(null)}
+                className={`${studioGhostButtonClass} h-8 px-2`}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form className="flex flex-col gap-4" onSubmit={handleTemplateClone}>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                  Name
+                </label>
+                <input
+                  value={templateCloneName}
+                  onChange={(event) => setTemplateCloneName(event.target.value)}
+                  maxLength={60}
+                  className={inputClass}
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                  Description
+                </label>
+                <input
+                  value={templateCloneDescription}
+                  onChange={(event) => setTemplateCloneDescription(event.target.value)}
+                  maxLength={140}
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                  Protection
+                </label>
+                <select
+                  value={templateCloneProtection}
+                  onChange={(event) => setTemplateCloneProtection(event.target.value as SpaceProtection)}
+                  className={inputClass}
+                >
+                  <option value="standard">Standard (Editable)</option>
+                  <option value="locked">Locked (Frozen)</option>
+                  <option value="team-shared">Team-shared (Collaborative)</option>
+                  <option value="template-only">Template-only (Read-only)</option>
+                </select>
+                <span className="text-[10px] text-zinc-400 leading-snug">
+                  {protectionDescription[templateCloneProtection]}
+                </span>
+              </div>
+
+              {templateCloneProtection === 'team-shared' ? (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500">
+                    Shared Workspaces
+                  </label>
+                  <input
+                    value={templateCloneSharedWorkspaceIdsInput}
+                    onChange={(event) => setTemplateCloneSharedWorkspaceIdsInput(event.target.value)}
+                    placeholder="IDs, comma-separated"
+                    className={inputClass}
+                  />
+                </div>
+              ) : null}
+
+              <div className="mt-2 flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedFeaturedTemplate(null)}
+                  className={`${studioGhostButtonClass} h-9 px-4 text-xs`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={templateCloneSubmitting}
+                  className={`${studioPrimaryButtonClass} h-9 px-5 text-xs`}
+                >
+                  Create From Template
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

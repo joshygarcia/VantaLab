@@ -1,0 +1,24 @@
+
+> vanta-lab@0.1.0 dev:web
+> npm run dev --workspace apps/web
+
+
+> @vanta-lab/web@0.1.0 dev
+> node ./scripts/dev.cjs
+
+[web-dev] Port 3000 is busy, starting Next.js on 3001 instead.
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3001
+   - Network:      http://100.68.43.70:3001
+   - Environments: .env.local, .env
+   - Experiments (use with caution):
+     ⨯ devtoolSegmentExplorer
+
+ ✓ Starting...
+ ✓ Ready in 1729ms
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 831ms (164 modules)
+ ○ Compiling /canvas ...
+ ✓ Compiled /canvas in 4.7s (836 modules)
+ GET /canvas 200 in 5186ms
+ GET /canvas 200 in 95ms

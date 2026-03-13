@@ -43,6 +43,11 @@ export type CustomSpaceItem = {
   createdAt: string;
 };
 
+export type FeaturedTemplateKey =
+  | 'influencer-launch'
+  | 'product-story'
+  | 'content-batch';
+
 export type BillingTransaction = {
   id: string;
   userId: string;
@@ -675,6 +680,33 @@ export async function createCustomSpace(
 
   if (!response.ok) {
     throw new Error('Failed to create custom space');
+  }
+
+  return response.json();
+}
+
+export async function createSpaceFromTemplate(
+  workspaceId: string,
+  payload: {
+    templateKey: FeaturedTemplateKey;
+    name: string;
+    description?: string;
+    protection: 'standard' | 'template-only' | 'locked' | 'team-shared';
+    sharedWorkspaceIds?: string[];
+  }
+): Promise<{ item: CustomSpaceItem; canvasSeeded: boolean }> {
+  const accessToken = await getAccessToken(workspaceId);
+  const response = await fetch(`${API_BASE}/workspaces/${workspaceId}/spaces/from-template`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to create space from template');
   }
 
   return response.json();
