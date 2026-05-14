@@ -1,9 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { PrismaService } from '../database/prisma.service';
+import { DbService } from '../database/db.service';
+import { FirebaseService } from '../firebase/firebase.service';
 import { UpdateWorkspaceSettingsDto } from './dto/update-workspace.dto';
 import { UpdateKlingElementsLibraryDto } from './dto/update-kling-elements-library.dto';
 import { UploadWorkspaceFileDto } from './dto/upload-workspace-file.dto';
@@ -17,10 +15,7 @@ type KieUploadResponse = {
     success?: boolean;
     code?: number;
     msg?: string;
-    data?: {
-        fileUrl?: string;
-        downloadUrl?: string;
-    };
+    data?: { fileUrl?: string; downloadUrl?: string };
 };
 
 type CustomSpaceItem = {
@@ -41,25 +36,24 @@ type CustomSpaceConfig = {
     createdAt: string;
 };
 
-type NodeFsError = Error & {
-    code?: string;
-};
-
 type WorkspaceCanvasState = {
     nodes: Record<string, unknown>[];
     edges: Record<string, unknown>[];
-    viewport?: {
-        x: number;
-        y: number;
-        zoom: number;
-    };
+    viewport?: { x: number; y: number; zoom: number };
 };
+
+type KlingLibraryItem = {
+    imageUrls?: unknown;
+};
+
+const LIBRARY_DOC_PATH = (workspaceId: string) => ({ workspaceId });
 
 @Injectable()
 export class WorkspacesService {
-    constructor(private readonly prisma: PrismaService) { }
-    private supabaseStorageAdmin: SupabaseClient | null = null;
-    private readonly signedUrlTtlSeconds = 60 * 60 * 24;
+    constructor(
+        private readonly db: DbService,
+        private readonly firebase: FirebaseService,
+    ) { }
 
     private sanitizeStoragePathSegment(value: string) {
         return value
@@ -69,88 +63,21 @@ export class WorkspacesService {
             .replace(/^_+|_+$/g, '');
     }
 
-    private readonly klingElementsLibraryPath = path.resolve(
-        __dirname,
-        '../../../data/kling-elements-library.json'
-    );
-
-    private readonly customSpacesPath = path.resolve(
-        __dirname,
-        '../../../data/custom-spaces.json'
-    );
-
-    private getSupabaseStorageAdmin(): SupabaseClient {
-        if (this.supabaseStorageAdmin) {
-            return this.supabaseStorageAdmin;
-        }
-
-        const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        if (!supabaseUrl || !serviceRoleKey) {
-            throw new BadRequestException(
-                'Supabase Storage is not configured. Set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.'
-            );
-        }
-
-        this.supabaseStorageAdmin = createClient(supabaseUrl, serviceRoleKey, {
-            auth: { persistSession: false }
-        });
-
-        return this.supabaseStorageAdmin;
+    private get firestore() {
+        return this.firebase.firestore;
     }
 
-    private getSupabaseStorageBucket() {
-        return process.env.SUPABASE_STORAGE_BUCKET
-            ?? process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET
-            ?? 'element-library';
+    private getElementLibraryPrefix(): string {
+        return process.env.FIREBASE_ELEMENT_LIBRARY_PREFIX ?? 'element-library';
     }
 
-    private extractSupabaseObjectPath(fileUrl: string, bucket: string) {
-        const supabaseUrl = (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
-        if (!supabaseUrl) {
-            return null;
+    private extractFirebaseObjectPath(fileUrl: string): string | null {
+        const bucketName = this.firebase.bucket.name;
+        const directPrefix = `https://storage.googleapis.com/${bucketName}/`;
+        if (fileUrl.startsWith(directPrefix)) {
+            return decodeURIComponent(fileUrl.slice(directPrefix.length));
         }
-
-        const prefix = `${supabaseUrl}/storage/v1/object/public/${bucket}/`;
-        if (!fileUrl.startsWith(prefix)) {
-            return null;
-        }
-
-        const objectPath = fileUrl.slice(prefix.length).trim();
-        if (!objectPath) {
-            return null;
-        }
-
-        return decodeURIComponent(objectPath);
-    }
-
-    private async toDisplayableStorageUrl(fileUrl: string, requesterUserId: string) {
-        const bucket = this.getSupabaseStorageBucket();
-        const objectPath = this.extractSupabaseObjectPath(fileUrl, bucket);
-
-        if (!objectPath) {
-            return fileUrl;
-        }
-
-        const pathSegments = objectPath.split('/').filter((segment) => segment.length > 0);
-        const ownerSegment = pathSegments.length >= 3 ? pathSegments[1] : null;
-        const normalizedRequesterId = this.sanitizeStoragePathSegment(requesterUserId);
-
-        if (!ownerSegment || !normalizedRequesterId || ownerSegment !== normalizedRequesterId) {
-            return fileUrl;
-        }
-
-        const { data, error } = await this.getSupabaseStorageAdmin()
-            .storage
-            .from(bucket)
-            .createSignedUrl(objectPath, this.signedUrlTtlSeconds);
-
-        if (error || !data?.signedUrl) {
-            return fileUrl;
-        }
-
-        return data.signedUrl;
+        return null;
     }
 
     private assertWorkspaceAccess(id: string, userWorkspaceIds: string[]) {
@@ -160,39 +87,26 @@ export class WorkspacesService {
     }
 
     private canAccessCustomSpace(space: CustomSpaceItem, userWorkspaceIds: string[]) {
-        if (userWorkspaceIds.includes(space.ownerWorkspaceId)) {
-            return true;
-        }
-
+        if (userWorkspaceIds.includes(space.ownerWorkspaceId)) return true;
         return (
             space.protection === 'team-shared' &&
-            space.sharedWorkspaceIds.some((workspaceId) => userWorkspaceIds.includes(workspaceId))
+            space.sharedWorkspaceIds.some((wsId) => userWorkspaceIds.includes(wsId))
         );
     }
 
     private async assertSpaceCanvasAccess(spaceId: string, userWorkspaceIds: string[]) {
-        if (userWorkspaceIds.includes(spaceId)) {
-            return;
-        }
-
-        const matchedSpace = await this.findCustomSpaceById(spaceId);
-        if (matchedSpace && this.canAccessCustomSpace(matchedSpace, userWorkspaceIds)) {
-            return;
-        }
-
+        if (userWorkspaceIds.includes(spaceId)) return;
+        const matched = await this.findCustomSpaceById(spaceId);
+        if (matched && this.canAccessCustomSpace(matched, userWorkspaceIds)) return;
         throw new UnauthorizedException('User does not have access to this space');
     }
 
     private async resolveWorkspaceOwnerForSpace(spaceId: string, userWorkspaceIds: string[]) {
-        if (userWorkspaceIds.includes(spaceId)) {
-            return spaceId;
+        if (userWorkspaceIds.includes(spaceId)) return spaceId;
+        const matched = await this.findCustomSpaceById(spaceId);
+        if (matched && this.canAccessCustomSpace(matched, userWorkspaceIds)) {
+            return matched.ownerWorkspaceId;
         }
-
-        const matchedSpace = await this.findCustomSpaceById(spaceId);
-        if (matchedSpace && this.canAccessCustomSpace(matchedSpace, userWorkspaceIds)) {
-            return matchedSpace.ownerWorkspaceId;
-        }
-
         throw new UnauthorizedException('User does not have access to this space');
     }
 
@@ -205,15 +119,8 @@ export class WorkspacesService {
             `${process.env.KIE_FILE_UPLOAD_BASE_URL ?? 'https://kieai.redpandaai.co'}/api/file-base64-upload`,
             {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`
-                },
-                body: JSON.stringify({
-                    base64Data,
-                    uploadPath: `vanta-lab/${Date.now()}`,
-                    fileName
-                })
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                body: JSON.stringify({ base64Data, uploadPath: `vanta-lab/${Date.now()}`, fileName })
             }
         );
 
@@ -226,11 +133,10 @@ export class WorkspacesService {
         if (!fileUrl) {
             throw new BadRequestException('Upload completed without a file URL');
         }
-
         return fileUrl;
     }
 
-    private async uploadImageToSupabaseStorage(
+    private async uploadImageToFirebaseStorage(
         base64Data: string,
         fileName: string | undefined,
         workspaceId: string,
@@ -255,11 +161,7 @@ export class WorkspacesService {
             throw new BadRequestException('Invalid base64 image payload');
         }
 
-        if (!binary.length) {
-            throw new BadRequestException('Image payload is empty');
-        }
-
-        const bucket = this.getSupabaseStorageBucket();
+        if (!binary.length) throw new BadRequestException('Image payload is empty');
 
         const extensionByMime: Record<string, string> = {
             'image/png': 'png',
@@ -277,235 +179,104 @@ export class WorkspacesService {
 
         const workspaceSegment = this.sanitizeStoragePathSegment(workspaceId) || 'workspace';
         const userSegment = this.sanitizeStoragePathSegment(userId) || 'user';
-        const objectPath = `${workspaceSegment}/${userSegment}/${Date.now()}_${randomUUID().slice(0, 8)}.${extension}`;
-        const supabase = this.getSupabaseStorageAdmin();
+        const prefix = this.getElementLibraryPrefix();
+        const objectPath = `${prefix}/${workspaceSegment}/${userSegment}/${Date.now()}_${randomUUID().slice(0, 8)}.${extension}`;
 
-        const { error } = await supabase.storage
-            .from(bucket)
-            .upload(objectPath, binary, {
-                contentType: mimeType,
-                cacheControl: '3600',
-                upsert: false
-            });
-
-        if (error) {
-            throw new BadRequestException(`Failed to upload image to Supabase Storage: ${error.message}`);
-        }
-
-        const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(objectPath);
-        const fileUrl = publicUrlData?.publicUrl;
-
-        if (!fileUrl) {
-            throw new BadRequestException('Supabase upload completed without a public URL');
-        }
-
-        return fileUrl;
+        const file = this.firebase.bucket.file(objectPath);
+        await file.save(binary, {
+            contentType: mimeType,
+            metadata: { cacheControl: 'public, max-age=3600' },
+            resumable: false,
+        });
+        await file.makePublic();
+        return `https://storage.googleapis.com/${this.firebase.bucket.name}/${objectPath}`;
     }
 
-    private async readLibraryStore(): Promise<Record<string, unknown[]>> {
-        try {
-            const raw = await fs.readFile(this.klingElementsLibraryPath, 'utf-8');
-            const parsed = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                return {};
-            }
-            return parsed as Record<string, unknown[]>;
-        } catch {
-            return {};
-        }
+    // ─── Kling elements library (Firestore-backed) ────────────────────────
+    private libraryDoc(workspaceId: string) {
+        return this.firestore.collection('klingElementsLibrary').doc(workspaceId);
     }
 
-    private async writeLibraryStore(store: Record<string, unknown[]>) {
-        const dir = path.dirname(this.klingElementsLibraryPath);
-        await fs.mkdir(dir, { recursive: true });
-        await fs.writeFile(this.klingElementsLibraryPath, JSON.stringify(store, null, 2), 'utf-8');
+    private async readLibrary(workspaceId: string): Promise<unknown[]> {
+        const snap = await this.libraryDoc(workspaceId).get();
+        if (!snap.exists) return [];
+        const data = snap.data() as { items?: unknown };
+        return Array.isArray(data?.items) ? data.items : [];
+    }
+
+    private async writeLibrary(workspaceId: string, items: unknown[]) {
+        await this.libraryDoc(workspaceId).set({ items, updatedAt: new Date() });
+    }
+
+    private async readAllLibraries(): Promise<Record<string, unknown[]>> {
+        const snap = await this.firestore.collection('klingElementsLibrary').get();
+        const result: Record<string, unknown[]> = {};
+        snap.docs.forEach((doc) => {
+            const data = doc.data() as { items?: unknown };
+            if (Array.isArray(data?.items)) result[doc.id] = data.items;
+        });
+        return result;
     }
 
     private collectLibraryImageUrls(items: unknown[]): string[] {
         const urls: string[] = [];
-
         for (const item of items) {
-            if (!item || typeof item !== 'object' || Array.isArray(item)) {
-                continue;
-            }
-
-            const rawImageUrls = (item as { imageUrls?: unknown }).imageUrls;
-            if (!Array.isArray(rawImageUrls)) {
-                continue;
-            }
-
+            if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+            const rawImageUrls = (item as KlingLibraryItem).imageUrls;
+            if (!Array.isArray(rawImageUrls)) continue;
             for (const rawUrl of rawImageUrls) {
-                if (typeof rawUrl !== 'string') {
-                    continue;
-                }
-
+                if (typeof rawUrl !== 'string') continue;
                 const normalized = rawUrl.trim();
-                if (normalized.length > 0) {
-                    urls.push(normalized);
-                }
+                if (normalized.length > 0) urls.push(normalized);
             }
         }
-
         return Array.from(new Set(urls));
     }
 
     private async deleteLibraryStorageFiles(workspaceId: string, fileUrls: string[]) {
-        if (fileUrls.length === 0) {
-            return;
-        }
-
-        const bucket = this.getSupabaseStorageBucket();
+        if (fileUrls.length === 0) return;
         const workspaceSegment = this.sanitizeStoragePathSegment(workspaceId);
-        if (!workspaceSegment) {
-            return;
-        }
+        if (!workspaceSegment) return;
+        const prefix = this.getElementLibraryPrefix();
 
         const objectPaths = Array.from(new Set(
             fileUrls
-                .map((url) => this.extractSupabaseObjectPath(url, bucket))
-                .filter((objectPath): objectPath is string => {
-                    if (typeof objectPath !== 'string') {
-                        return false;
-                    }
-
-                    return objectPath.startsWith(`${workspaceSegment}/`);
-                })
+                .map((url) => this.extractFirebaseObjectPath(url))
+                .filter((p): p is string => typeof p === 'string' && p.startsWith(`${prefix}/${workspaceSegment}/`))
         ));
 
-        if (objectPaths.length === 0) {
-            return;
-        }
+        if (objectPaths.length === 0) return;
 
-        const supabase = this.getSupabaseStorageAdmin();
-        const batchSize = 100;
-
-        for (let index = 0; index < objectPaths.length; index += batchSize) {
-            const batch = objectPaths.slice(index, index + batchSize);
-            const { error } = await supabase.storage.from(bucket).remove(batch);
-
-            if (error) {
-                throw new Error(`Failed to remove Supabase Storage objects: ${error.message}`);
-            }
-        }
+        await Promise.allSettled(
+            objectPaths.map((p) => this.firebase.bucket.file(p).delete({ ignoreNotFound: true } as any))
+        );
     }
 
-    private async readCustomSpacesStore(): Promise<Record<string, CustomSpaceItem[]>> {
-        try {
-            const raw = await fs.readFile(this.customSpacesPath, 'utf-8');
-            const parsed = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-                return {};
-            }
-
-            const normalized: Record<string, CustomSpaceItem[]> = {};
-            for (const [workspaceId, items] of Object.entries(parsed)) {
-                if (!Array.isArray(items)) {
-                    continue;
-                }
-
-                normalized[workspaceId] = items
-                    .map((item) => {
-                        if (!item || typeof item !== 'object') {
-                            return null;
-                        }
-
-                        const rawItem = item as Partial<CustomSpaceItem> & {
-                            ownerWorkspaceId?: unknown;
-                            protection?: unknown;
-                            sharedWorkspaceIds?: unknown;
-                        };
-
-                        if (
-                            typeof rawItem.id !== 'string' ||
-                            typeof rawItem.name !== 'string' ||
-                            typeof rawItem.description !== 'string' ||
-                            typeof rawItem.createdAt !== 'string'
-                        ) {
-                            return null;
-                        }
-
-                        const ownerWorkspaceId =
-                            typeof rawItem.ownerWorkspaceId === 'string'
-                                ? rawItem.ownerWorkspaceId
-                                : workspaceId;
-
-                        const protectionRaw = typeof rawItem.protection === 'string' ? rawItem.protection : 'standard';
-                        const protection: SpaceProtection =
-                            protectionRaw === 'template-only' ||
-                            protectionRaw === 'locked' ||
-                            protectionRaw === 'team-shared'
-                                ? protectionRaw
-                                : 'standard';
-
-                        const sharedWorkspaceIds = Array.isArray(rawItem.sharedWorkspaceIds)
-                            ? rawItem.sharedWorkspaceIds.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-                            : [];
-
-                        return {
-                            id: rawItem.id,
-                            ownerWorkspaceId,
-                            name: rawItem.name,
-                            description: rawItem.description,
-                            protection,
-                            sharedWorkspaceIds: Array.from(new Set(sharedWorkspaceIds)),
-                            createdAt: rawItem.createdAt
-                        } satisfies CustomSpaceItem;
-                    })
-                    .filter((item): item is CustomSpaceItem => item !== null);
-            }
-
-            return normalized;
-        } catch {
-            return {};
-        }
-    }
-
+    // ─── Custom spaces (Firestore-backed via workspace.customSpaceConfig) ──
     private normalizeCustomSpaceConfig(
         workspaceId: string,
         workspaceName: string,
         value: unknown
     ): CustomSpaceItem | null {
-        if (!value) {
-            return null;
-        }
-
+        if (!value) return null;
         const parsed = typeof value === 'string'
-            ? (() => {
-                try {
-                    return JSON.parse(value);
-                } catch {
-                    return null;
-                }
-            })()
+            ? (() => { try { return JSON.parse(value); } catch { return null; } })()
             : value;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
 
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            return null;
-        }
-
-        const rawConfig = parsed as Partial<CustomSpaceConfig> & {
-            ownerWorkspaceId?: unknown;
-            description?: unknown;
-            protection?: unknown;
-            sharedWorkspaceIds?: unknown;
-            createdAt?: unknown;
-        };
-
+        const rawConfig = parsed as Partial<CustomSpaceConfig>;
         if (
             typeof rawConfig.ownerWorkspaceId !== 'string' ||
             typeof rawConfig.description !== 'string' ||
             typeof rawConfig.createdAt !== 'string'
-        ) {
-            return null;
-        }
+        ) return null;
 
         const protectionRaw = typeof rawConfig.protection === 'string' ? rawConfig.protection : 'standard';
         const protection: SpaceProtection =
-            protectionRaw === 'template-only' ||
-                protectionRaw === 'locked' ||
-                protectionRaw === 'team-shared'
+            protectionRaw === 'template-only' || protectionRaw === 'locked' || protectionRaw === 'team-shared'
                 ? protectionRaw
                 : 'standard';
+
         const sharedWorkspaceIds = Array.isArray(rawConfig.sharedWorkspaceIds)
             ? rawConfig.sharedWorkspaceIds.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [];
@@ -521,106 +292,27 @@ export class WorkspacesService {
         };
     }
 
-    private async readPersistedCustomSpaces(): Promise<Record<string, CustomSpaceItem[]>> {
-        const workspaces = await (this.prisma as any).workspace.findMany({
-            where: {
-                customSpaceConfig: {
-                    not: null
-                }
-            },
-            select: {
-                id: true,
-                name: true,
-                customSpaceConfig: true
-            }
-        }) as Array<{ id: string; name: string; customSpaceConfig?: string | null }>;
+    private async readAllCustomSpaces(): Promise<Record<string, CustomSpaceItem[]>> {
+        const workspaces = await this.db.workspace.findMany({
+            where: { customSpaceConfig: { not: null } }
+        });
 
         const normalized: Record<string, CustomSpaceItem[]> = {};
-
-        for (const workspace of workspaces) {
-            const item = this.normalizeCustomSpaceConfig(
-                workspace.id,
-                typeof workspace.name === 'string' ? workspace.name : workspace.id,
-                workspace.customSpaceConfig
-            );
-
-            if (!item) {
-                continue;
-            }
-
-            normalized[item.ownerWorkspaceId] = [
-                ...(normalized[item.ownerWorkspaceId] ?? []),
-                item
-            ];
+        for (const ws of workspaces) {
+            const item = this.normalizeCustomSpaceConfig(ws.id, ws.name, ws.customSpaceConfig);
+            if (!item) continue;
+            normalized[item.ownerWorkspaceId] = [...(normalized[item.ownerWorkspaceId] ?? []), item];
         }
-
-        for (const [ownerWorkspaceId, items] of Object.entries(normalized)) {
-            normalized[ownerWorkspaceId] = items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        for (const [k, items] of Object.entries(normalized)) {
+            normalized[k] = items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         }
-
         return normalized;
     }
 
-    private mergeCustomSpaceStores(
-        legacyStore: Record<string, CustomSpaceItem[]>,
-        persistedStore: Record<string, CustomSpaceItem[]>
-    ) {
-        const merged: Record<string, CustomSpaceItem[]> = {};
-        const ownerWorkspaceIds = new Set([
-            ...Object.keys(legacyStore),
-            ...Object.keys(persistedStore)
-        ]);
-
-        for (const ownerWorkspaceId of ownerWorkspaceIds) {
-            const deduped = new Map<string, CustomSpaceItem>();
-            for (const item of legacyStore[ownerWorkspaceId] ?? []) {
-                deduped.set(item.id, item);
-            }
-            for (const item of persistedStore[ownerWorkspaceId] ?? []) {
-                deduped.set(item.id, item);
-            }
-            merged[ownerWorkspaceId] = Array.from(deduped.values())
-                .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        }
-
-        return merged;
-    }
-
-    private async readAllCustomSpaces() {
-        const [legacyStore, persistedStore] = await Promise.all([
-            this.readCustomSpacesStore(),
-            this.readPersistedCustomSpaces()
-        ]);
-
-        return this.mergeCustomSpaceStores(legacyStore, persistedStore);
-    }
-
     private async findCustomSpaceById(spaceId: string): Promise<CustomSpaceItem | null> {
-        const persistedWorkspace = await (this.prisma as any).workspace.findUnique({
-            where: { id: spaceId },
-            select: {
-                id: true,
-                name: true,
-                customSpaceConfig: true
-            }
-        }) as { id: string; name: string; customSpaceConfig?: string | null } | null;
-
-        const persisted = persistedWorkspace
-            ? this.normalizeCustomSpaceConfig(
-                persistedWorkspace.id,
-                typeof persistedWorkspace.name === 'string' ? persistedWorkspace.name : persistedWorkspace.id,
-                persistedWorkspace.customSpaceConfig
-            )
-            : null;
-
-        if (persisted) {
-            return persisted;
-        }
-
-        const legacyStore = await this.readCustomSpacesStore();
-        return Object.values(legacyStore)
-            .flat()
-            .find((item) => item.id === spaceId) ?? null;
+        const ws = await this.db.workspace.findUnique({ where: { id: spaceId } });
+        if (!ws) return null;
+        return this.normalizeCustomSpaceConfig(ws.id, ws.name, ws.customSpaceConfig);
     }
 
     private isImmutableSpaceProtection(protection: SpaceProtection) {
@@ -638,20 +330,13 @@ export class WorkspacesService {
     }
 
     private buildCustomSpaceId(name: string) {
-        const slug = name
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '');
-
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
         return `${slug || 'space'}-${randomUUID().slice(0, 8)}`;
     }
 
-    private normalizeSharedWorkspaceIds(
-        ownerWorkspaceId: string,
-        sharedWorkspaceIds?: string[]
-    ) {
+    private normalizeSharedWorkspaceIds(ownerWorkspaceId: string, sharedWorkspaceIds?: string[]) {
         return Array.isArray(sharedWorkspaceIds)
-            ? Array.from(new Set(sharedWorkspaceIds.filter((entry) => entry.trim().length > 0 && entry !== ownerWorkspaceId)))
+            ? Array.from(new Set(sharedWorkspaceIds.filter((e) => e.trim().length > 0 && e !== ownerWorkspaceId)))
             : [];
     }
 
@@ -660,17 +345,13 @@ export class WorkspacesService {
         sharedWorkspaceIds: string[],
         userWorkspaceIds: string[]
     ) {
-        if (sharedWorkspaceIds.some((workspaceId) => !userWorkspaceIds.includes(workspaceId))) {
+        if (sharedWorkspaceIds.some((wsId) => !userWorkspaceIds.includes(wsId))) {
             throw new UnauthorizedException('Cannot share space with workspaces outside your access scope');
         }
-
         if (protection !== 'team-shared' && sharedWorkspaceIds.length > 0) {
             throw new BadRequestException('sharedWorkspaceIds are only supported for team-shared spaces');
         }
-
-        return protection === 'team-shared'
-            ? sharedWorkspaceIds
-            : [];
+        return protection === 'team-shared' ? sharedWorkspaceIds : [];
     }
 
     private buildCustomSpaceItem(
@@ -693,7 +374,7 @@ export class WorkspacesService {
     }
 
     private async persistCustomSpace(spaceId: string, item: CustomSpaceItem, userId: string) {
-        await this.prisma.workspace.upsert({
+        await this.db.workspace.upsert({
             where: { id: spaceId },
             update: {
                 name: item.name,
@@ -709,11 +390,9 @@ export class WorkspacesService {
     }
 
     private async persistCanvasState(spaceId: string, canvasState: WorkspaceCanvasState, userId: string) {
-        await (this.prisma as any).workspace.upsert({
+        await this.db.workspace.upsert({
             where: { id: spaceId },
-            update: {
-                canvasState: JSON.stringify(canvasState)
-            },
+            update: { canvasState: JSON.stringify(canvasState) },
             create: {
                 id: spaceId,
                 userId,
@@ -726,74 +405,18 @@ export class WorkspacesService {
     private buildTemplateCanvasState(templateKey: FeaturedTemplateKey, spaceId: string): WorkspaceCanvasState {
         const template = getFeaturedTemplateDefinition(templateKey);
         const canvas = template.buildCanvas(`template_${this.sanitizeStoragePathSegment(spaceId) || spaceId}`);
-
-        return {
-            nodes: canvas.nodes,
-            edges: canvas.edges,
-            viewport: canvas.viewport
-        };
+        return { nodes: canvas.nodes, edges: canvas.edges, viewport: canvas.viewport };
     }
 
-    private async writeCustomSpacesStore(store: Record<string, CustomSpaceItem[]>) {
-        const dir = path.dirname(this.customSpacesPath);
-        await fs.mkdir(dir, { recursive: true });
-        await fs.writeFile(this.customSpacesPath, JSON.stringify(store, null, 2), 'utf-8');
-    }
-
-    private isIgnorableLegacyStoreWriteError(error: unknown) {
-        const code = (error as NodeFsError | undefined)?.code;
-        return code === 'EACCES' || code === 'EROFS';
-    }
-
-    private async syncLegacyCustomSpacesStore(
-        ownerWorkspaceId: string,
-        spaceId: string,
-        nextItem: CustomSpaceItem | null
-    ) {
-        const store = await this.readCustomSpacesStore();
-        const existingItems = Array.isArray(store[ownerWorkspaceId]) ? store[ownerWorkspaceId] : [];
-        const remainingItems = existingItems.filter((item) => item.id !== spaceId);
-
-        if (nextItem) {
-            store[ownerWorkspaceId] = [nextItem, ...remainingItems]
-                .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        } else if (remainingItems.length > 0) {
-            store[ownerWorkspaceId] = remainingItems;
-        } else {
-            delete store[ownerWorkspaceId];
-        }
-
-        try {
-            await this.writeCustomSpacesStore(store);
-        } catch (error) {
-            if (this.isIgnorableLegacyStoreWriteError(error)) {
-                const code = (error as NodeFsError).code;
-                console.warn(`[workspaces] skipping legacy custom spaces store sync: ${code}`);
-                return;
-            }
-
-            throw error;
-        }
-    }
-
+    // ─── Public API ────────────────────────────────────────────────────────
     async updateSettings(id: string, payload: UpdateWorkspaceSettingsDto, userWorkspaceIds: string[], userId: string | undefined) {
-        if (!userId) {
-            throw new UnauthorizedException('Missing authenticated user id');
-        }
-
+        if (!userId) throw new UnauthorizedException('Missing authenticated user id');
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
-        const workspace = await this.prisma.workspace.upsert({
+        await this.db.workspace.upsert({
             where: { id },
-            update: {
-                kieApiKey: payload.kieApiKey
-            },
-            create: {
-                id,
-                userId,
-                name: `Workspace ${id}`,
-                kieApiKey: payload.kieApiKey
-            }
+            update: { kieApiKey: payload.kieApiKey },
+            create: { id, userId, name: `Workspace ${id}`, kieApiKey: payload.kieApiKey }
         });
 
         return { success: true };
@@ -801,43 +424,22 @@ export class WorkspacesService {
 
     async getWorkspaceCanvas(id: string, userWorkspaceIds: string[]) {
         await this.assertSpaceCanvasAccess(id, userWorkspaceIds);
-
-        const workspace = await (this.prisma as any).workspace.findUnique({
-            where: { id },
-            select: {
-                canvasState: true
-            }
-        }) as { canvasState?: string | null } | null;
-
-        if (!workspace?.canvasState) {
-            return {
-                nodes: [],
-                edges: []
-            };
-        }
+        const workspace = await this.db.workspace.findUnique({ where: { id } });
+        if (!workspace?.canvasState) return { nodes: [], edges: [] };
 
         try {
             const parsed = JSON.parse(workspace.canvasState) as WorkspaceCanvasState;
             const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
             const edges = Array.isArray(parsed.edges) ? parsed.edges : [];
-
             const viewport = parsed.viewport &&
                 typeof parsed.viewport.x === 'number' &&
                 typeof parsed.viewport.y === 'number' &&
                 typeof parsed.viewport.zoom === 'number'
                 ? parsed.viewport
                 : undefined;
-
-            return {
-                nodes,
-                edges,
-                viewport
-            };
+            return { nodes, edges, viewport };
         } catch {
-            return {
-                nodes: [],
-                edges: []
-            };
+            return { nodes: [], edges: [] };
         }
     }
 
@@ -847,10 +449,7 @@ export class WorkspacesService {
         userWorkspaceIds: string[],
         userId: string | undefined
     ) {
-        if (!userId) {
-            throw new UnauthorizedException('Missing authenticated user id');
-        }
-
+        if (!userId) throw new UnauthorizedException('Missing authenticated user id');
         await this.assertSpaceCanvasAccess(id, userWorkspaceIds);
 
         const canvasState: WorkspaceCanvasState = {
@@ -859,60 +458,19 @@ export class WorkspacesService {
             viewport: payload.viewport
         };
 
-        await (this.prisma as any).workspace.upsert({
+        await this.db.workspace.upsert({
             where: { id },
-            update: {
-                canvasState: JSON.stringify(canvasState)
-            },
-            create: {
-                id,
-                userId,
-                name: `Workspace ${id}`,
-                canvasState: JSON.stringify(canvasState)
-            }
+            update: { canvasState: JSON.stringify(canvasState) },
+            create: { id, userId, name: `Workspace ${id}`, canvasState: JSON.stringify(canvasState) }
         });
 
-        return {
-            success: true
-        };
+        return { success: true };
     }
 
-    async getKlingElementsLibrary(id: string, userWorkspaceIds: string[], requesterUserId: string) {
+    async getKlingElementsLibrary(id: string, userWorkspaceIds: string[], _requesterUserId: string) {
         const libraryWorkspaceId = await this.resolveWorkspaceOwnerForSpace(id, userWorkspaceIds);
-
-        const store = await this.readLibraryStore();
-        const items = Array.isArray(store[libraryWorkspaceId]) ? store[libraryWorkspaceId] : [];
-        const normalizedItems = await Promise.all(
-            items.map(async (item) => {
-                if (!item || typeof item !== 'object' || Array.isArray(item)) {
-                    return item;
-                }
-
-                const rawImageUrls = (item as { imageUrls?: unknown }).imageUrls;
-                if (!Array.isArray(rawImageUrls)) {
-                    return item;
-                }
-
-                const imageUrls = await Promise.all(
-                    rawImageUrls.map((value) => {
-                        if (typeof value !== 'string') {
-                            return Promise.resolve(value);
-                        }
-
-                        return this.toDisplayableStorageUrl(value, requesterUserId);
-                    })
-                );
-
-                return {
-                    ...item,
-                    imageUrls
-                };
-            })
-        );
-
-        return {
-            items: normalizedItems
-        };
+        const items = await this.readLibrary(libraryWorkspaceId);
+        return { items };
     }
 
     async updateKlingElementsLibrary(
@@ -922,29 +480,23 @@ export class WorkspacesService {
     ) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
-        const store = await this.readLibraryStore();
-        const previousItems = Array.isArray(store[id]) ? store[id] : [];
+        const previousItems = await this.readLibrary(id);
         const previousUrls = new Set(this.collectLibraryImageUrls(previousItems));
 
-        store[id] = payload.items;
+        await this.writeLibrary(id, payload.items);
 
         const nextUrlsInWorkspace = new Set(this.collectLibraryImageUrls(payload.items));
+        const allLibraries = await this.readAllLibraries();
         const remainingUrlsInAllWorkspaces = new Set(
-            Object.values(store).flatMap((items) => this.collectLibraryImageUrls(Array.isArray(items) ? items : []))
+            Object.values(allLibraries).flatMap((items) => this.collectLibraryImageUrls(items))
         );
 
         const urlsToDelete = Array.from(previousUrls).filter((url) => {
-            if (nextUrlsInWorkspace.has(url)) {
-                return false;
-            }
-
+            if (nextUrlsInWorkspace.has(url)) return false;
             return !remainingUrlsInAllWorkspaces.has(url);
         });
 
-        await this.writeLibraryStore(store);
-
         let deletedStorageObjects = 0;
-
         if (urlsToDelete.length > 0) {
             try {
                 await this.deleteLibraryStorageFiles(id, urlsToDelete);
@@ -955,11 +507,7 @@ export class WorkspacesService {
             }
         }
 
-        return {
-            success: true,
-            count: payload.items.length,
-            deletedStorageObjects
-        };
+        return { success: true, count: payload.items.length, deletedStorageObjects };
     }
 
     async listCustomSpaces(id: string, userWorkspaceIds: string[]) {
@@ -967,7 +515,6 @@ export class WorkspacesService {
 
         const store = await this.readAllCustomSpaces();
         const ownItems = Array.isArray(store[id]) ? store[id] : [];
-
         const teamSharedItems = Object.values(store)
             .flat()
             .filter((item) =>
@@ -976,13 +523,11 @@ export class WorkspacesService {
                 item.sharedWorkspaceIds.includes(id)
             );
 
-        const dedupedById = new Map<string, CustomSpaceItem>();
-        for (const item of [...ownItems, ...teamSharedItems]) {
-            dedupedById.set(item.id, item);
-        }
+        const deduped = new Map<string, CustomSpaceItem>();
+        for (const item of [...ownItems, ...teamSharedItems]) deduped.set(item.id, item);
 
         return {
-            items: Array.from(dedupedById.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+            items: Array.from(deduped.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         };
     }
 
@@ -992,36 +537,20 @@ export class WorkspacesService {
         userWorkspaceIds: string[],
         userId: string | undefined
     ) {
-        if (!userId) {
-            throw new UnauthorizedException('Missing authenticated user id');
-        }
-
+        if (!userId) throw new UnauthorizedException('Missing authenticated user id');
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
         const trimmedName = payload.name.trim();
         const trimmedDescription = payload.description?.trim() || 'Custom workflow space';
         const protection = payload.protection ?? 'standard';
-        const requestedSharedWorkspaceIds = this.normalizeSharedWorkspaceIds(id, payload.sharedWorkspaceIds);
-        const sharedWorkspaceIds = this.validateCustomSpaceSharing(protection, requestedSharedWorkspaceIds, userWorkspaceIds);
+        const requestedShared = this.normalizeSharedWorkspaceIds(id, payload.sharedWorkspaceIds);
+        const sharedWorkspaceIds = this.validateCustomSpaceSharing(protection, requestedShared, userWorkspaceIds);
 
         const spaceId = this.buildCustomSpaceId(trimmedName);
-
-        const nextItem = this.buildCustomSpaceItem(
-            id,
-            spaceId,
-            trimmedName,
-            trimmedDescription,
-            protection,
-            sharedWorkspaceIds
-        );
-
+        const nextItem = this.buildCustomSpaceItem(id, spaceId, trimmedName, trimmedDescription, protection, sharedWorkspaceIds);
         await this.persistCustomSpace(spaceId, nextItem, userId);
 
-        await this.syncLegacyCustomSpacesStore(id, spaceId, nextItem);
-
-        return {
-            item: nextItem
-        };
+        return { item: nextItem };
     }
 
     async createSpaceFromTemplate(
@@ -1030,44 +559,26 @@ export class WorkspacesService {
         userWorkspaceIds: string[],
         userId: string | undefined
     ) {
-        if (!userId) {
-            throw new UnauthorizedException('Missing authenticated user id');
-        }
-
+        if (!userId) throw new UnauthorizedException('Missing authenticated user id');
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
         const template = getFeaturedTemplateDefinition(payload.templateKey as FeaturedTemplateKey);
-        if (!template) {
-            throw new BadRequestException('Unknown template key');
-        }
+        if (!template) throw new BadRequestException('Unknown template key');
 
         const trimmedName = payload.name.trim();
-        if (!trimmedName) {
-            throw new BadRequestException('Space name is required');
-        }
+        if (!trimmedName) throw new BadRequestException('Space name is required');
 
         const trimmedDescription = payload.description?.trim() || template.description;
         const protection = payload.protection ?? 'standard';
-        const requestedSharedWorkspaceIds = this.normalizeSharedWorkspaceIds(id, payload.sharedWorkspaceIds);
-        const sharedWorkspaceIds = this.validateCustomSpaceSharing(protection, requestedSharedWorkspaceIds, userWorkspaceIds);
+        const requestedShared = this.normalizeSharedWorkspaceIds(id, payload.sharedWorkspaceIds);
+        const sharedWorkspaceIds = this.validateCustomSpaceSharing(protection, requestedShared, userWorkspaceIds);
         const spaceId = this.buildCustomSpaceId(trimmedName);
-        const nextItem = this.buildCustomSpaceItem(
-            id,
-            spaceId,
-            trimmedName,
-            trimmedDescription,
-            protection,
-            sharedWorkspaceIds
-        );
+        const nextItem = this.buildCustomSpaceItem(id, spaceId, trimmedName, trimmedDescription, protection, sharedWorkspaceIds);
 
         await this.persistCustomSpace(spaceId, nextItem, userId);
         await this.persistCanvasState(spaceId, this.buildTemplateCanvasState(payload.templateKey, spaceId), userId);
-        await this.syncLegacyCustomSpacesStore(id, spaceId, nextItem);
 
-        return {
-            item: nextItem,
-            canvasSeeded: true
-        };
+        return { item: nextItem, canvasSeeded: true };
     }
 
     async updateCustomSpace(
@@ -1078,27 +589,22 @@ export class WorkspacesService {
     ) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
-        const store = await this.readAllCustomSpaces();
-        const existingItems = Array.isArray(store[id]) ? store[id] : [];
-        const existing = existingItems.find((item) => item.id === spaceId);
-
-        if (!existing) {
+        const existing = await this.findCustomSpaceById(spaceId);
+        if (!existing || existing.ownerWorkspaceId !== id) {
             throw new NotFoundException('Space not found in this owner workspace');
         }
-
         if (this.isImmutableSpaceProtection(existing.protection)) {
             throw new BadRequestException('This space is protected and cannot be modified');
         }
 
         const nextProtection = payload.protection ?? existing.protection;
         const nextSharedWorkspaceIds = payload.sharedWorkspaceIds
-            ? Array.from(new Set(payload.sharedWorkspaceIds.filter((entry) => entry.trim().length > 0 && entry !== id)))
+            ? Array.from(new Set(payload.sharedWorkspaceIds.filter((e) => e.trim().length > 0 && e !== id)))
             : existing.sharedWorkspaceIds;
 
-        if (nextSharedWorkspaceIds.some((workspaceId) => !userWorkspaceIds.includes(workspaceId))) {
+        if (nextSharedWorkspaceIds.some((wsId) => !userWorkspaceIds.includes(wsId))) {
             throw new UnauthorizedException('Cannot share space with workspaces outside your access scope');
         }
-
         if (nextProtection !== 'team-shared' && nextSharedWorkspaceIds.length > 0) {
             throw new BadRequestException('sharedWorkspaceIds are only supported for team-shared spaces');
         }
@@ -1111,67 +617,46 @@ export class WorkspacesService {
             sharedWorkspaceIds: nextProtection === 'team-shared' ? nextSharedWorkspaceIds : []
         };
 
-        await this.prisma.workspace.updateMany({
+        await this.db.workspace.updateMany({
             where: { id: spaceId },
             data: {
                 name: updatedItem.name,
                 customSpaceConfig: JSON.stringify(this.toCustomSpaceConfig(updatedItem))
             }
         });
-        await this.syncLegacyCustomSpacesStore(id, spaceId, updatedItem);
 
-        return {
-            item: updatedItem
-        };
+        return { item: updatedItem };
     }
 
-    async deleteCustomSpace(
-        id: string,
-        spaceId: string,
-        userWorkspaceIds: string[]
-    ) {
+    async deleteCustomSpace(id: string, spaceId: string, userWorkspaceIds: string[]) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
-        const store = await this.readAllCustomSpaces();
-        const existingItems = Array.isArray(store[id]) ? store[id] : [];
-        const existing = existingItems.find((item) => item.id === spaceId);
-
-        if (!existing) {
+        const existing = await this.findCustomSpaceById(spaceId);
+        if (!existing || existing.ownerWorkspaceId !== id) {
             throw new NotFoundException('Space not found in this owner workspace');
         }
-
         if (this.isImmutableSpaceProtection(existing.protection)) {
             throw new BadRequestException('This space is protected and cannot be deleted');
         }
 
-        const nextItems = existingItems.filter((item) => item.id !== spaceId);
-
-        await this.prisma.workspace.updateMany({
+        await this.db.workspace.updateMany({
             where: { id: spaceId },
-            data: {
-                customSpaceConfig: null
-            }
+            data: { customSpaceConfig: null }
         });
-        await this.syncLegacyCustomSpacesStore(id, spaceId, null);
 
-        return {
-            success: true,
-            deleted: existingItems.length !== nextItems.length
-        };
+        return { success: true, deleted: true };
     }
 
     async uploadWorkspaceFile(id: string, payload: UploadWorkspaceFileDto, userWorkspaceIds: string[]) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
 
-        const workspace = await this.prisma.workspace.findUnique({ where: { id } });
+        const workspace = await this.db.workspace.findUnique({ where: { id } });
         if (!workspace?.kieApiKey) {
             throw new BadRequestException('Kie.ai API key is missing. Please configure it in Workspace Settings.');
         }
 
         const fileUrl = await this.uploadImageToKie(payload.base64Data, payload.fileName, workspace.kieApiKey);
-        return {
-            fileUrl
-        };
+        return { fileUrl };
     }
 
     async uploadElementLibraryFile(
@@ -1181,10 +666,7 @@ export class WorkspacesService {
         userId: string
     ) {
         this.assertWorkspaceAccess(id, userWorkspaceIds);
-
-        const fileUrl = await this.uploadImageToSupabaseStorage(payload.base64Data, payload.fileName, id, userId);
-        return {
-            fileUrl
-        };
+        const fileUrl = await this.uploadImageToFirebaseStorage(payload.base64Data, payload.fileName, id, userId);
+        return { fileUrl };
     }
 }

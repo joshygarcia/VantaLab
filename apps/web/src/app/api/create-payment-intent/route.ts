@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { createClient } from '@/lib/supabase/server';
+import { getServerSessionUser } from '@/lib/firebase/server';
 
 let stripeClient: Stripe | null = null;
 
@@ -31,12 +31,8 @@ const PACKAGE_PRICES: Record<string, { amountInCents: number; credits: number }>
 
 export async function POST(request: Request) {
     try {
-        const supabase = await createClient();
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user?.id) {
+        const user = await getServerSessionUser();
+        if (!user?.uid) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
@@ -55,7 +51,7 @@ export async function POST(request: Request) {
             automatic_payment_methods: { enabled: true },
             metadata: {
                 packageId,
-                userId: user.id,
+                userId: user.uid,
                 credits: String(pkg.credits),
             },
         });

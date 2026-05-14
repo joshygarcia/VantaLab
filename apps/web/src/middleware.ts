@@ -1,5 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server';
 
 const PROTECTED_PREFIXES = [
     '/canvas',
@@ -13,63 +12,29 @@ const PROTECTED_PREFIXES = [
     '/admin',
 ];
 
-export async function middleware(request: NextRequest) {
-    let supabaseResponse = NextResponse.next({
-        request,
-    })
+const SESSION_COOKIE = '__vanta_session';
 
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                getAll() {
-                    return request.cookies.getAll()
-                },
-                setAll(cookiesToSet) {
-                    cookiesToSet.forEach(({ name, value }) =>
-                        request.cookies.set(name, value)
-                    )
-                    supabaseResponse = NextResponse.next({
-                        request,
-                    })
-                    cookiesToSet.forEach(({ name, value, options }) =>
-                        supabaseResponse.cookies.set(name, value, options)
-                    )
-                },
-            },
-        }
-    )
-
-    // IMPORTANT: Do not write any logic between createServerClient and
-    // supabase.auth.getUser(). A simple mistake could make it very hard to debug
-    // issues with users being randomly logged out.
-    const { data: { user } } = await supabase.auth.getUser()
-
-    // Redirect unauthenticated users away from protected studio routes
+// Middleware runs in the Edge runtime where firebase-admin is unavailable.
+// We treat the presence of the session cookie as a soft signal; server
+// components and API routes re-verify the cookie cryptographically.
+export function middleware(request: NextRequest) {
+    const sessionCookie = request.cookies.get(SESSION_COOKIE)?.value;
     const isProtectedRoute = PROTECTED_PREFIXES.some(
         (prefix) => request.nextUrl.pathname.startsWith(prefix)
     );
 
-    if (!user && isProtectedRoute) {
+    if (!sessionCookie && isProtectedRoute) {
         // BYPASSED FOR LOCAL SHOWCASE CAPTURE
-        // const redirectUrl = request.nextUrl.clone()
-        // redirectUrl.pathname = '/'
-        // return NextResponse.redirect(redirectUrl)
+        // const redirectUrl = request.nextUrl.clone();
+        // redirectUrl.pathname = '/';
+        // return NextResponse.redirect(redirectUrl);
     }
 
-    return supabaseResponse
+    return NextResponse.next({ request });
 }
 
 export const config = {
     matcher: [
-        /*
-         * Match all request paths except for the ones starting with:
-         * - _next/static (static files)
-         * - _next/image (image optimization files)
-         * - favicon.ico (favicon file)
-         * - public folder assets
-         */
         '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
     ],
-}
+};

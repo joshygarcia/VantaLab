@@ -2,12 +2,13 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtModule } from '@nestjs/jwt';
+import { FirebaseModule } from './firebase/firebase.module';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { WorkspaceAccessGuard } from './auth/guards/workspace-access.guard';
 import { DeveloperRoleGuard } from './auth/guards/developer-role.guard';
-import { PrismaService } from './database/prisma.service';
+import { DbService } from './database/db.service';
 import { WorkflowsController } from './workflows/workflows.controller';
 import { WorkflowQueueService } from './workflows/workflow-queue.service';
 import { WorkflowsService } from './workflows/workflows.service';
@@ -22,10 +23,11 @@ import { BillingService } from './billing/billing.service';
 
 @Module({
   imports: [
+    FirebaseModule,
     JwtModule.register({}),
     ThrottlerModule.forRoot([{
       ttl: 60000,
-      limit: 100, // 100 requests per minute
+      limit: 100,
     }]),
   ],
   controllers: [AuthController, WorkflowsController, WorkspacesController, ApiKeysController, AnalyticsController, HealthController, BillingController],
@@ -34,7 +36,7 @@ import { BillingService } from './billing/billing.service';
     JwtAuthGuard,
     WorkspaceAccessGuard,
     DeveloperRoleGuard,
-    PrismaService,
+    DbService,
     WorkflowQueueService,
     WorkflowsService,
     WorkspacesService,

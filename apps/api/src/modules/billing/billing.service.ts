@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import Stripe from 'stripe';
-import { PrismaService } from '../database/prisma.service';
+import { DbService } from '../database/db.service';
 import { CREDIT_PACKAGES, CreditPackage } from './billing.constants';
 
 type StripeWebhookEvent = Stripe.Event;
@@ -13,12 +12,10 @@ export class BillingService {
   private readonly logger = new Logger(BillingService.name);
   private stripe: Stripe | null = null;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(private readonly db: DbService) {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (stripeSecretKey) {
-      this.stripe = new Stripe(stripeSecretKey, {
-        apiVersion: STRIPE_API_VERSION
-      });
+      this.stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
     }
   }
 
@@ -75,39 +72,24 @@ export class BillingService {
   }
 
   async getBalance(userId: string) {
-    const balance = await this.prisma.userCreditBalance.findUnique({
-      where: { userId },
-      select: { credits: true }
-    });
-
-    return {
-      credits: balance?.credits ?? 0
-    };
+    const balance = await this.db.userCreditBalance.findUnique({ where: { userId } });
+    return { credits: balance?.credits ?? 0 };
   }
 
   async listTransactions(userId: string, limit = 50) {
     const take = Math.max(1, Math.min(limit, 200));
-    const transactions = await this.prisma.creditTransaction.findMany({
+    const transactions = await this.db.creditTransaction.findMany({
       where: { userId },
       orderBy: { processedAt: 'desc' },
       take
     });
 
-    return {
-      transactions
-    };
+    return { transactions };
   }
 
   async hasSufficientCredits(userId: string, requiredCredits: number): Promise<boolean> {
-    if (requiredCredits <= 0) {
-      return true;
-    }
-
-    const balance = await this.prisma.userCreditBalance.findUnique({
-      where: { userId },
-      select: { credits: true }
-    });
-
+    if (requiredCredits <= 0) return true;
+    const balance = await this.db.userCreditBalance.findUnique({ where: { userId } });
     return (balance?.credits ?? 0) >= requiredCredits;
   }
 
@@ -117,49 +99,10 @@ export class BillingService {
   ): Promise<{ success: boolean; remainingCredits: number }> {
     if (requiredCredits <= 0) {
       const currentBalance = await this.getBalance(userId);
-      return {
-        success: true,
-        remainingCredits: currentBalance.credits
-      };
+      return { success: true, remainingCredits: currentBalance.credits };
     }
-
-    return this.prisma.$transaction(async (tx) => {
-      const decrementResult = await tx.userCreditBalance.updateMany({
-        where: {
-          userId,
-          credits: {
-            gte: requiredCredits
-          }
-        },
-        data: {
-          credits: {
-            decrement: requiredCredits
-          }
-        }
-      });
-
-      if (decrementResult.count === 0) {
-        const current = await tx.userCreditBalance.findUnique({
-          where: { userId },
-          select: { credits: true }
-        });
-
-        return {
-          success: false,
-          remainingCredits: current?.credits ?? 0
-        };
-      }
-
-      const updated = await tx.userCreditBalance.findUnique({
-        where: { userId },
-        select: { credits: true }
-      });
-
-      return {
-        success: true,
-        remainingCredits: updated?.credits ?? 0
-      };
-    });
+    const result = await this.db.spendCredits(userId, requiredCredits);
+    return { success: result.success, remainingCredits: result.remaining };
   }
 
   private getCreditPackage(packageId: string): CreditPackage {
@@ -176,12 +119,8 @@ export class BillingService {
       if (!stripeSecretKey) {
         throw new InternalServerErrorException('Missing STRIPE_SECRET_KEY environment variable');
       }
-
-      this.stripe = new Stripe(stripeSecretKey, {
-        apiVersion: STRIPE_API_VERSION
-      });
+      this.stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
     }
-
     return this.stripe;
   }
 
@@ -206,39 +145,18 @@ export class BillingService {
       throw new BadRequestException('Payment amount mismatch for package');
     }
 
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const existing = await tx.creditTransaction.findUnique({
-        where: { stripePaymentIntentId: paymentIntent.id }
-      });
-
-      if (existing) {
-        return;
-      }
-
-      await tx.userCreditBalance.upsert({
-        where: { userId },
-        update: {
-          credits: {
-            increment: credits
-          }
-        },
-        create: {
-          userId,
-          credits
-        }
-      });
-
-      await tx.creditTransaction.create({
-        data: {
-          userId,
-          packageId,
-          credits,
-          amountInCents: paymentIntent.amount_received,
-          currency: paymentIntent.currency,
-          stripePaymentIntentId: paymentIntent.id,
-          metadata: JSON.stringify(paymentIntent.metadata)
-        }
-      });
+    const { alreadyProcessed } = await this.db.settleStripePayment({
+      userId,
+      packageId,
+      credits,
+      amountInCents: paymentIntent.amount_received,
+      currency: paymentIntent.currency,
+      stripePaymentIntentId: paymentIntent.id,
+      metadata: paymentIntent.metadata,
     });
+
+    if (alreadyProcessed) {
+      this.logger.log(`Stripe payment ${paymentIntent.id} was already processed; skipping replay.`);
+    }
   }
 }

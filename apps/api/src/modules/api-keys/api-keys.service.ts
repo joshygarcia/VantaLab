@@ -1,6 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../database/prisma.service';
-import { ApiKey, Prisma } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
+import { DbService, ApiKey } from '../database/db.service';
 
 type ApiKeyWithRemainingCredits = ApiKey & {
     remainingCredits: number | null;
@@ -15,14 +14,14 @@ type KieRemainingCreditsResponse = {
 
 @Injectable()
 export class ApiKeysService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(private readonly db: DbService) { }
 
-    async create(data: Prisma.ApiKeyCreateInput): Promise<ApiKey> {
-        return this.prisma.apiKey.create({ data });
+    async create(data: { key: string; provider?: string; isActive?: boolean }): Promise<ApiKey> {
+        return this.db.apiKey.create({ data });
     }
 
     async findAll(): Promise<ApiKeyWithRemainingCredits[]> {
-        const keys = await this.prisma.apiKey.findMany({
+        const keys = await this.db.apiKey.findMany({
             orderBy: { createdAt: 'desc' },
         });
 
@@ -47,23 +46,20 @@ export class ApiKeysService {
     }
 
     async setStatus(id: string, isActive: boolean): Promise<ApiKey> {
-        return this.prisma.apiKey.update({
+        return this.db.apiKey.update({
             where: { id },
             data: { isActive },
         });
     }
 
     async delete(id: string): Promise<ApiKey> {
-        return this.prisma.apiKey.delete({ where: { id } });
+        return this.db.apiKey.delete({ where: { id } });
     }
 
-    /**
-     * Simple Round-Robin / Least Used logic for Load Balancing.
-     */
     async getNextAvailableKey(): Promise<ApiKey> {
-        const key = await this.prisma.apiKey.findFirst({
+        const key = await this.db.apiKey.findFirst({
             where: { isActive: true },
-            orderBy: { lastUsedAt: 'asc' }, // Selects the one used longest ago or null
+            orderBy: { lastUsedAt: 'asc' },
         });
 
         if (!key) {
@@ -73,26 +69,16 @@ export class ApiKeysService {
         return key;
     }
 
-    /**
-     * Log usage against a key.
-     */
     async logUsage(apiKeyId: string, endpoint: string, costInCents: number = 0, status: number = 200) {
-        // 1. Log the transaction
-        await this.prisma.apiUsageLog.create({
-            data: {
-                apiKeyId,
-                endpoint,
-                costInCents,
-                status,
-            },
+        await this.db.apiUsageLog.create({
+            data: { apiKeyId, endpoint, costInCents, status },
         });
 
-        // 2. Update the key's lastUsedAt and usageCount
-        await this.prisma.apiKey.update({
+        await this.db.apiKey.update({
             where: { id: apiKeyId },
             data: {
                 lastUsedAt: new Date(),
-                usageCount: { increment: 1 },
+                usageCount: { increment: 1 } as any,
             },
         });
     }
@@ -100,9 +86,7 @@ export class ApiKeysService {
     private async getRemainingCreditsForKey(apiKey: string): Promise<number | null> {
         const response = await fetch('https://api.kie.ai/api/v1/chat/credit', {
             method: 'GET',
-            headers: {
-                Authorization: `Bearer ${apiKey}`
-            }
+            headers: { Authorization: `Bearer ${apiKey}` }
         });
 
         if (!response.ok) {

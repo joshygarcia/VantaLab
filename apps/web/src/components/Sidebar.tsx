@@ -24,7 +24,8 @@ import {
 } from 'lucide-react';
 import { useProjectContext } from '@/components/projects/project-context';
 import { UserButton } from '@/components/auth/UserButton';
-import { createClient } from '@/lib/supabase/client';
+import { getFirebaseAuth } from '@/lib/firebase/client';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -131,32 +132,22 @@ export default function Sidebar() {
   }, [projectMenuOpen]);
 
   useEffect(() => {
-    const supabase = createClient();
+    const auth = getFirebaseAuth();
 
     const syncRole = async () => {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
-
-      if (!session?.access_token) {
+      const user = auth.currentUser;
+      if (!user) {
         setIsDeveloper(false);
         return;
       }
-
       try {
+        const token = await user.getIdToken();
         const response = await fetch(`${API_BASE}/auth/me`, {
           method: 'GET',
           cache: 'no-store',
-          headers: {
-            authorization: `Bearer ${session.access_token}`
-          }
+          headers: { authorization: `Bearer ${token}` }
         });
-
-        if (!response.ok) {
-          setIsDeveloper(false);
-          return;
-        }
-
+        if (!response.ok) { setIsDeveloper(false); return; }
         const body = (await response.json()) as { role?: string };
         setIsDeveloper(body.role === 'developer');
       } catch {
@@ -164,17 +155,8 @@ export default function Sidebar() {
       }
     };
 
-    void syncRole();
-
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange(() => {
-      void syncRole();
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    const unsubscribe = onAuthStateChanged(auth, () => { void syncRole(); });
+    return () => unsubscribe();
   }, []);
 
   const handleSelectProjectSpace = (projectId: string, spaceId: string) => {

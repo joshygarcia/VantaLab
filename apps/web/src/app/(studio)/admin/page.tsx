@@ -2,41 +2,29 @@ import { KpiStats } from '@/components/admin/KpiStats';
 import { ApiKeyManager } from '@/components/admin/ApiKeyManager';
 import { SystemLogs } from '@/components/admin/SystemLogs';
 import { ShieldAlert } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { getServerSessionUser } from '@/lib/firebase/server';
+import { getAdminApp } from '@/lib/firebase/admin';
+import { getFirestore } from 'firebase-admin/firestore';
 import { StudioPageShell } from '@/components/studio/StudioPageShell';
 import { STUDIO_PANEL_CLASS } from '@/components/studio/StudioSection';
 import { studioKickerClass } from '@/components/studio/StudioControls';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
 export const metadata = {
   title: 'Admin Dashboard - Vanta Lab'
 };
 
 async function hasDeveloperAccess() {
-  const supabase = await createClient();
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
+  const session = await getServerSessionUser();
+  if (!session?.uid) return false;
 
-  if (!session?.access_token) {
+  try {
+    const firestore = getFirestore(getAdminApp());
+    const userSnap = await firestore.collection('users').doc(session.uid).get();
+    if (!userSnap.exists) return false;
+    return (userSnap.data() as { role?: string }).role === 'DEVELOPER';
+  } catch {
     return false;
   }
-
-  const response = await fetch(`${API_BASE}/auth/me`, {
-    method: 'GET',
-    cache: 'no-store',
-    headers: {
-      authorization: `Bearer ${session.access_token}`
-    }
-  });
-
-  if (!response.ok) {
-    return false;
-  }
-
-  const profile = (await response.json()) as { role?: string };
-  return profile.role === 'developer';
 }
 
 export default async function AdminDashboardPage() {

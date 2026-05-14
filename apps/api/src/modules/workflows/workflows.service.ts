@@ -1,11 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { PrismaService } from '../database/prisma.service';
+import { DbService } from '../database/db.service';
 import { ExecuteWorkflowDto } from './dto/execute-workflow.dto';
 import { ExecuteCharacterWorkflowDto } from './dto/execute-character-workflow.dto';
 import { WorkflowQueueService } from './workflow-queue.service';
 import { calculateWorkflowCreditCost } from './workflow-credit-cost';
-import { Prisma } from '@prisma/client';
+
+type JsonObject = Record<string, unknown>;
 
 type GenerationHistoryFilters = {
   limit: number;
@@ -20,7 +21,7 @@ export class WorkflowsService {
   private readonly historyRetentionDays = 14;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
     private readonly workflowQueue: WorkflowQueueService
   ) { }
 
@@ -32,7 +33,7 @@ export class WorkflowsService {
     const requestFingerprint = JSON.stringify(payload);
 
     if (idempotencyKey) {
-      const existing = await this.prisma.workflowJob.findUnique({ where: { idempotencyKey } });
+      const existing = await this.db.workflowJob.findUnique({ where: { idempotencyKey } });
       if (existing) {
         if (existing.requestFingerprint && existing.requestFingerprint !== requestFingerprint) {
           throw new ConflictException('Idempotency key was already used with a different payload.');
@@ -93,7 +94,7 @@ export class WorkflowsService {
   }
 
   async getJob(jobId: string) {
-    const job = await this.prisma.workflowJob.findUnique({ where: { id: jobId } });
+    const job = await this.db.workflowJob.findUnique({ where: { id: jobId } });
     if (!job) {
       return null;
     }
@@ -143,7 +144,7 @@ export class WorkflowsService {
     const gteDate = normalizedStartDate && normalizedStartDate > cutoff ? normalizedStartDate : cutoff;
     const lteDate = normalizedEndDate;
 
-    const jobs = await this.prisma.workflowJob.findMany({
+    const jobs = await this.db.workflowJob.findMany({
       where: {
         userId,
         createdAt: {
@@ -225,7 +226,7 @@ export class WorkflowsService {
 
   private async pruneExpiredUserJobs(userId: string) {
     const cutoff = this.getHistoryCutoffDate();
-    await this.prisma.workflowJob.deleteMany({
+    await this.db.workflowJob.deleteMany({
       where: {
         userId,
         createdAt: {
@@ -235,14 +236,14 @@ export class WorkflowsService {
     });
   }
 
-  private safeParseParameters(rawParameters: string | null): Prisma.JsonObject {
+  private safeParseParameters(rawParameters: string | null): JsonObject {
     if (!rawParameters) {
       return {};
     }
 
     try {
       const parsed = JSON.parse(rawParameters);
-      return typeof parsed === 'object' && parsed !== null ? (parsed as Prisma.JsonObject) : {};
+      return typeof parsed === 'object' && parsed !== null ? (parsed as JsonObject) : {};
     } catch {
       return {};
     }
@@ -277,74 +278,43 @@ export class WorkflowsService {
     requestFingerprint: string;
     estimatedCreditCost: number;
   }): Promise<void> {
-    const maxRetries = 3;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await this.prisma.$transaction(
-          async (tx) => {
-            const [balance, pendingJobs] = await Promise.all([
-              tx.userCreditBalance.findUnique({
-                where: { userId: input.userId },
-                select: { credits: true }
-              }),
-              tx.workflowJob.findMany({
-                where: {
-                  userId: input.userId,
-                  status: {
-                    in: ['queued', 'processing']
-                  }
-                },
-                select: {
-                  model: true,
-                  parameters: true
-                }
-              })
-            ]);
-
-            const pendingCredits = pendingJobs.reduce((sum, job) => {
-              const parsedParameters = this.safeParseParameters(job.parameters);
-              return sum + calculateWorkflowCreditCost(job.model, parsedParameters);
-            }, 0);
-            const balanceCredits = balance?.credits ?? 0;
-            const availableCredits = Math.max(0, balanceCredits - pendingCredits);
-
-            if (input.estimatedCreditCost > availableCredits) {
-              throw new BadRequestException(
-                `Insufficient credits. This run requires ${input.estimatedCreditCost} credits, ` +
-                `available is ${availableCredits} (balance: ${balanceCredits}, pending: ${pendingCredits}).`
-              );
-            }
-
-            await tx.workflowJob.create({
-              data: {
-                id: input.jobId,
-                userId: input.userId,
-                workspaceId: input.payload.workspaceId,
-                nodeId: input.payload.nodeId,
-                model: input.payload.model,
-                prompt: input.payload.parameters.prompt,
-                parameters: JSON.stringify(input.payload.parameters),
-                status: 'queued',
-                idempotencyKey: input.idempotencyKey,
-                requestFingerprint: input.requestFingerprint
-              }
-            });
-          },
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-          }
-        );
-        return;
-      } catch (error) {
-        if (!this.isSerializationConflict(error) || attempt === maxRetries) {
-          throw error;
+    const [balance, pendingJobs] = await Promise.all([
+      this.db.userCreditBalance.findUnique({ where: { userId: input.userId } }),
+      this.db.workflowJob.findMany({
+        where: {
+          userId: input.userId,
+          status: { in: ['queued', 'processing'] }
         }
-      }
-    }
-  }
+      })
+    ]);
 
-  private isSerializationConflict(error: unknown): boolean {
-    return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034';
+    const pendingCredits = pendingJobs.reduce((sum, job) => {
+      const parsedParameters = this.safeParseParameters(job.parameters);
+      return sum + calculateWorkflowCreditCost(job.model, parsedParameters);
+    }, 0);
+    const balanceCredits = balance?.credits ?? 0;
+    const availableCredits = Math.max(0, balanceCredits - pendingCredits);
+
+    if (input.estimatedCreditCost > availableCredits) {
+      throw new BadRequestException(
+        `Insufficient credits. This run requires ${input.estimatedCreditCost} credits, ` +
+        `available is ${availableCredits} (balance: ${balanceCredits}, pending: ${pendingCredits}).`
+      );
+    }
+
+    await this.db.workflowJob.create({
+      data: {
+        id: input.jobId,
+        userId: input.userId,
+        workspaceId: input.payload.workspaceId,
+        nodeId: input.payload.nodeId,
+        model: input.payload.model,
+        prompt: input.payload.parameters.prompt,
+        parameters: JSON.stringify(input.payload.parameters),
+        status: 'queued',
+        idempotencyKey: input.idempotencyKey ?? null,
+        requestFingerprint: input.requestFingerprint
+      }
+    });
   }
 }

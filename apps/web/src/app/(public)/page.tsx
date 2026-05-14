@@ -6,9 +6,9 @@ import { useRouter } from 'next/navigation';
 import { gsap } from 'gsap';
 import { useGSAP } from '@gsap/react';
 import { MousePointer2, Move, ZoomIn, Image as ImageIcon, Video, Layers, Wand2, ArrowRight, Sparkles, Fingerprint, Cpu, Search, Activity, Box, Network, Cloud, Star, Command, Zap, Bot, Globe, Triangle, Hexagon } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { getFirebaseAuth } from '@/lib/firebase/client';
+import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { AuthModal } from '@/components/auth/AuthModal';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export default function LandingVariantThree() {
     const CANVAS_SIZE = 6000;
@@ -27,24 +27,15 @@ export default function LandingVariantThree() {
 
     const router = useRouter();
     const [authModalOpen, setAuthModalOpen] = useState(false);
-    const [user, setUser] = useState<SupabaseUser | null>(null);
+    const [user, setUser] = useState<FirebaseUser | null>(null);
     const [isMobile, setIsMobile] = useState(false);
-    const supabase = createClient();
 
     // Check auth state on mount
     useEffect(() => {
-        const checkUser = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            setUser(session?.user ?? null);
-        };
-        checkUser();
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
-        });
-
-        return () => subscription.unsubscribe();
-    }, [supabase.auth]);
+        const auth = getFirebaseAuth();
+        const unsubscribe = onAuthStateChanged(auth, (next) => setUser(next));
+        return () => unsubscribe();
+    }, []);
 
     useEffect(() => {
         if (typeof window === 'undefined') {

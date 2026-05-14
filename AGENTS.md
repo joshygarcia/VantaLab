@@ -14,7 +14,7 @@ MUST DO: Always check available skills/tools that may help the current task and 
 - Workspace globs: `apps/*`, `packages/*`.
 - Main apps:
   - `apps/web`: Next.js 15 + React 19 frontend.
-  - `apps/api`: NestJS 10 + Prisma backend.
+  - `apps/api`: NestJS 10 backend (firebase-admin for data/auth/storage).
 - Shared package: `packages/types` (shared TypeScript types).
 
 ## 2) Rules Files (Cursor / Copilot)
@@ -32,7 +32,8 @@ If any of these files are added later:
 - Node.js 20+ and npm 10+ are required.
 - Install dependencies: `npm install`.
 - Copy env templates: `cp apps/api/.env.example apps/api/.env` and `cp apps/web/.env.example apps/web/.env.local`.
-- Generate Prisma client + sync schema: `npm run db:setup --workspace apps/api`.
+- Drop the Firebase service-account JSON at `apps/api/firebase-service-account.json` (gitignored) or set `FIREBASE_SERVICE_ACCOUNT_JSON` inline.
+- Optional local emulator stack: `npm run emulators --workspace apps/api` (Auth + Firestore + Storage on ports 9099/8080/9199).
 
 ## 4) Development Commands
 - Run both services: `npm run dev`.
@@ -65,12 +66,11 @@ If any of these files are added later:
 - Web has no automated tests configured.
 
 ## 6) Environment and Data Notes
-- Prisma datasource is PostgreSQL (`apps/api/prisma/schema.prisma`), not SQLite.
-- API Prisma operations require `DATABASE_URL` and `DIRECT_URL`.
-- API also depends on auth/provider env vars (for example `JWT_SECRET`, Supabase keys, Stripe keys).
+- Persistent data lives in Cloud Firestore via firebase-admin. Collections: `users`, `workspaces`, `workflowJobs`, `apiKeys` (with `usage` subcollection), `creditBalances` (with `transactions` subcollection), `klingElementsLibrary`.
+- API requires `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, and a service-account credential (`FIREBASE_SERVICE_ACCOUNT_PATH` or `FIREBASE_SERVICE_ACCOUNT_JSON`), plus `JWT_SECRET` and Stripe keys.
+- Web requires the public `NEXT_PUBLIC_FIREBASE_*` config and (server-only) admin credential for session-cookie verification.
 - Web calls API through `NEXT_PUBLIC_API_URL` (defaults to local API URL in code).
-- API may create local JSON stores under `apps/api/data/` at runtime.
-- Never commit real secrets or populated `.env` files.
+- Never commit real secrets, populated `.env` files, or service-account JSONs.
 
 ## 7) Code Style and Conventions
 
