@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ApiKeysService } from './api-keys.service';
 import { ApiKeysController } from './api-keys.controller';
-import { PrismaService } from '../database/prisma.service';
+import { DbService } from '../database/db.service';
 
 @Module({
-    providers: [ApiKeysService, PrismaService],
+    providers: [ApiKeysService, DbService],
     controllers: [ApiKeysController],
     exports: [ApiKeysService],
 })

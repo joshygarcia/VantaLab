@@ -1,0 +1,46 @@
+rules_version = '2';
+
+// Default: client access denied. The API uses admin SDK (bypasses rules).
+// The only client-side writeable surface is the ephemeral canvasEvents
+// subcollection used for multi-user realtime canvas sync.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can read their own profile.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Users can read their own credit balance + transaction history.
+    match /creditBalances/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+
+      match /transactions/{txId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    // Workspaces: owner read; writes go through the API.
+    match /workspaces/{workspaceId} {
+      allow read: if request.auth != null
+                  && resource.data.userId == request.auth.uid;
+      allow write: if false;
+
+      // Ephemeral canvas events for multi-user realtime sync.
+      // Owner can read + create events; events expire client-side after 60s.
+      match /canvasEvents/{eventId} {
+        allow read, create: if request.auth != null
+                            && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.userId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    // Everything else: API-only.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -77,12 +77,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Prisma migrations
-        run: npm run prisma:migrate:deploy --workspace apps/api
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DIRECT_URL }}
-
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }} --quiet
 
@@ -109,13 +103,10 @@ jobs:
             --timeout=300
             --set-env-vars=NODE_ENV=production
           secrets: |
-            DATABASE_URL=DATABASE_URL:latest
-            DIRECT_URL=DIRECT_URL:latest
             JWT_SECRET=JWT_SECRET:latest
-            SUPABASE_URL=SUPABASE_URL:latest
-            SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest
-            SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest
-            REDIS_URL=REDIS_URL:latest
+            FIREBASE_PROJECT_ID=FIREBASE_PROJECT_ID:latest
+            FIREBASE_STORAGE_BUCKET=FIREBASE_STORAGE_BUCKET:latest
+            FIREBASE_SERVICE_ACCOUNT_JSON=FIREBASE_SERVICE_ACCOUNT_JSON:latest
             FRONTEND_URL=FRONTEND_URL:latest
             STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest
             STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest

@@ -1,12 +1,12 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
-import { PrismaService } from '../database/prisma.service';
+import { DbService } from '../database/db.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DeveloperRoleGuard } from '../auth/guards/developer-role.guard';
 
 @Controller('api/v1/admin/analytics')
 @UseGuards(JwtAuthGuard, DeveloperRoleGuard)
 export class AnalyticsController {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(private readonly db: DbService) { }
 
     @Get('kpi')
     async getKpis() {
@@ -17,36 +17,25 @@ export class AnalyticsController {
             workflowStatsRaw,
             billingTotals
         ] = await Promise.all([
-            this.prisma.userAccount.count(),
-            this.prisma.apiKey.count({
-                where: { isActive: true },
+            this.db.userAccount.count(),
+            this.db.apiKey.count({ where: { isActive: true } }),
+            this.db.apiUsageLog.aggregate({
+                _count: { id: true },
+                _sum: { costInCents: true },
             }),
-            this.prisma.apiUsageLog.aggregate({
-                _count: {
-                    id: true,
-                },
-                _sum: {
-                    costInCents: true,
-                },
-            }),
-            this.prisma.workflowJob.groupBy({
+            this.db.workflowJob.groupBy({
                 by: ['status'],
-                _count: {
-                    id: true,
-                },
+                _count: { id: true },
             }),
-            this.prisma.creditTransaction.aggregate({
-                _sum: {
-                    credits: true,
-                    amountInCents: true,
-                },
+            this.db.creditTransaction.aggregate({
+                _sum: { credits: true, amountInCents: true },
             })
         ]);
 
-        const workflowStats = workflowStatsRaw.reduce((acc, curr) => {
+        const workflowStats = workflowStatsRaw.reduce<Record<string, number>>((acc, curr) => {
             acc[curr.status] = curr._count.id;
             return acc;
-        }, {} as Record<string, number>);
+        }, {});
 
         return {
             totalUsers,
@@ -61,17 +50,9 @@ export class AnalyticsController {
 
     @Get('logs')
     async getLogs() {
-        return this.prisma.workflowJob.findMany({
+        return this.db.workflowJob.findMany({
             orderBy: { createdAt: 'desc' },
             take: 50,
-            select: {
-                id: true,
-                model: true,
-                prompt: true,
-                status: true,
-                error: true,
-                createdAt: true,
-            },
         });
     }
 }

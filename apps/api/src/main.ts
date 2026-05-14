@@ -6,9 +6,8 @@ import { resolveAllowedOrigins } from './cors';
 
 const REQUIRED_ENV_VARS = [
   'JWT_SECRET',
-  'SUPABASE_URL',
-  'SUPABASE_ANON_KEY',
-  'SUPABASE_SERVICE_ROLE_KEY'
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_STORAGE_BUCKET'
 ] as const;
 
 function assertRequiredEnvVars() {

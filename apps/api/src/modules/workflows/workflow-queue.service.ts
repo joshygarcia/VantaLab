@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Observable, Subject, filter } from 'rxjs';
-import { PrismaService } from '../database/prisma.service';
+import { DbService } from '../database/db.service';
+import { FirebaseService } from '../firebase/firebase.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { BillingService } from '../billing/billing.service';
 import { calculateWorkflowCreditCost } from './workflow-credit-cost';
@@ -143,10 +143,10 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export class WorkflowQueueService {
   private readonly logger = new Logger(WorkflowQueueService.name);
   private readonly updates$ = new Subject<WorkflowJobUpdate>();
-  private supabaseStorageAdmin: SupabaseClient | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly db: DbService,
+    private readonly firebase: FirebaseService,
     private readonly apiKeysService: ApiKeysService,
     private readonly billingService: BillingService
   ) { }
@@ -370,31 +370,8 @@ export class WorkflowQueueService {
       .replace(/^_+|_+$/g, '');
   }
 
-  private getCharacterOutputBucket(): string {
-    return process.env.SUPABASE_CREATOR_LAB_BUCKET
-      ?? process.env.NEXT_PUBLIC_SUPABASE_CREATOR_LAB_BUCKET
-      ?? 'creator-lab-assets';
-  }
-
-  private getSupabaseStorageAdmin(): SupabaseClient {
-    if (this.supabaseStorageAdmin) {
-      return this.supabaseStorageAdmin;
-    }
-
-    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error(
-        'Supabase Storage is not configured. Set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.'
-      );
-    }
-
-    this.supabaseStorageAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false }
-    });
-
-    return this.supabaseStorageAdmin;
+  private getCharacterOutputPrefix(): string {
+    return process.env.FIREBASE_CREATOR_LAB_PREFIX ?? 'creator-lab-assets';
   }
 
   private inferImageExtension(sourceUrl: string, contentType: string | null): string {
@@ -429,7 +406,7 @@ export class WorkflowQueueService {
     return 'png';
   }
 
-  private async uploadGeneratedImageToSupabase(
+  private async uploadGeneratedImageToFirebase(
     sourceUrl: string,
     context: CharacterOutputUploadContext,
     label: 'profile' | 'full-body' | 'sheet'
@@ -449,39 +426,26 @@ export class WorkflowQueueService {
     const workspaceSegment = this.sanitizeStoragePathSegment(context.workspaceId) || 'workspace';
     const userSegment = this.sanitizeStoragePathSegment(context.userId) || 'user';
     const jobSegment = this.sanitizeStoragePathSegment(context.jobId) || Date.now().toString();
-    const objectPath = `generated-characters/${workspaceSegment}/${userSegment}/${jobSegment}_${label}.${extension}`;
-    const bucket = this.getCharacterOutputBucket();
+    const prefix = this.getCharacterOutputPrefix();
+    const objectPath = `${prefix}/generated-characters/${workspaceSegment}/${userSegment}/${jobSegment}_${label}.${extension}`;
 
-    const supabase = this.getSupabaseStorageAdmin();
-    const { error } = await supabase.storage
-      .from(bucket)
-      .upload(objectPath, imageBuffer, {
-        contentType,
-        cacheControl: '31536000',
-        upsert: true
-      });
-
-    if (error) {
-      throw new Error(`Failed to upload generated image to Supabase: ${error.message}`);
-    }
-
-    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(objectPath);
-    const supabaseUrl = publicUrlData?.publicUrl;
-
-    if (!supabaseUrl) {
-      throw new Error('Supabase upload completed without a retrievable URL');
-    }
-
-    return supabaseUrl;
+    const file = this.firebase.bucket.file(objectPath);
+    await file.save(imageBuffer, {
+      contentType,
+      metadata: { cacheControl: 'public, max-age=31536000' },
+      resumable: false,
+    });
+    await file.makePublic();
+    return `https://storage.googleapis.com/${this.firebase.bucket.name}/${objectPath}`;
   }
 
-  private async uploadCharacterOutputsToSupabase(
+  private async uploadCharacterOutputsToStorage(
     outputUrls: [string, string, string],
     context: CharacterOutputUploadContext
   ): Promise<[string, string, string]> {
-    const uploadedProfile = await this.uploadGeneratedImageToSupabase(outputUrls[0], context, 'profile');
-    const uploadedFullBody = await this.uploadGeneratedImageToSupabase(outputUrls[1], context, 'full-body');
-    const uploadedSheet = await this.uploadGeneratedImageToSupabase(outputUrls[2], context, 'sheet');
+    const uploadedProfile = await this.uploadGeneratedImageToFirebase(outputUrls[0], context, 'profile');
+    const uploadedFullBody = await this.uploadGeneratedImageToFirebase(outputUrls[1], context, 'full-body');
+    const uploadedSheet = await this.uploadGeneratedImageToFirebase(outputUrls[2], context, 'sheet');
 
     return [uploadedProfile, uploadedFullBody, uploadedSheet];
   }
@@ -989,14 +953,14 @@ export class WorkflowQueueService {
   }
 
   private async processJobInBackground(payload: WorkflowQueuePayload) {
-    const existing = await this.prisma.workflowJob.findUnique({ where: { id: payload.workflowJobId } });
+    const existing = await this.db.workflowJob.findUnique({ where: { id: payload.workflowJobId } });
     if (!existing) {
       this.logger.warn(`Job not found: ${payload.workflowJobId}`);
       return;
     }
 
     try {
-      await this.prisma.workflowJob.update({
+      await this.db.workflowJob.update({
         where: { id: payload.workflowJobId },
         data: {
           status: 'processing',
@@ -1005,7 +969,7 @@ export class WorkflowQueueService {
       });
       this.updates$.next({ id: payload.workflowJobId, status: 'processing', error: null });
 
-      const workspace = await this.prisma.workspace.findUnique({
+      const workspace = await this.db.workspace.findUnique({
         where: { id: existing.workspaceId }
       });
 
@@ -1080,7 +1044,7 @@ export class WorkflowQueueService {
           selectedResolution
         );
 
-        const uploadedCharacterUrls = await this.uploadCharacterOutputsToSupabase(
+        const uploadedCharacterUrls = await this.uploadCharacterOutputsToStorage(
           [profilePictureUrl, fullBodyUrl, characterSheetUrl],
           {
             workspaceId: existing.workspaceId,
@@ -1165,7 +1129,7 @@ export class WorkflowQueueService {
         );
       }
 
-      await this.prisma.workflowJob.update({
+      await this.db.workflowJob.update({
         where: { id: payload.workflowJobId },
         data: {
           status: 'succeeded',
@@ -1194,7 +1158,7 @@ export class WorkflowQueueService {
 
       // Attempt to update database with failure state
       try {
-        await this.prisma.workflowJob.update({
+        await this.db.workflowJob.update({
           where: { id: payload.workflowJobId },
           data: {
             status: 'failed',

@@ -1,5 +1,14 @@
-import { createClient } from '@/lib/supabase/client';
+import { getFirebaseAuth } from '@/lib/firebase/client';
 import { chooseWorkspaceTokenStrategy } from '@/lib/workspace-token-strategy';
+
+async function getFirebaseIdToken(): Promise<{ token: string | null; userId: string | null }> {
+  if (typeof window === 'undefined') return { token: null, userId: null };
+  const auth = getFirebaseAuth();
+  const user = auth.currentUser;
+  if (!user) return { token: null, userId: null };
+  const token = await user.getIdToken();
+  return { token, userId: user.uid };
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 const DEV_JWT = process.env.NEXT_PUBLIC_DEV_JWT;
@@ -305,10 +314,7 @@ const parseLegacyElementLibraryItem = (value: unknown): LegacyElementLibraryItem
 };
 
 async function getAccessToken(workspaceId: string): Promise<string> {
-  const supabase = createClient();
-  const { data } = await supabase.auth.getSession();
-  const sessionUserId = data.session?.user?.id?.trim();
-  const sessionToken = data.session?.access_token;
+  const { token: sessionToken, userId: sessionUserId } = await getFirebaseIdToken();
 
   const existing = workspaceTokens.get(workspaceId);
   if (existing) {
@@ -427,21 +433,12 @@ export async function getUserWorkspaceIds(): Promise<string[]> {
 }
 
 async function getUserAccessToken(): Promise<string> {
-  const supabase = createClient();
-  const { data } = await supabase.auth.getSession();
-
-  if (data.session?.access_token) {
-    return data.session.access_token;
-  }
-
-  if (DEV_JWT) {
-    return DEV_JWT;
-  }
-
+  const { token } = await getFirebaseIdToken();
+  if (token) return token;
+  if (DEV_JWT) return DEV_JWT;
   if (!IS_DEV_ENV) {
     throw new Error('Failed to acquire auth token');
   }
-
   return getAccessToken('local');
 }
 

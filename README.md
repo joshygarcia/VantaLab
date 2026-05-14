@@ -1,6 +1,6 @@
 # Vanta Lab - Production AI Workflow SaaS
 
-TL;DR stack: Next.js 15 + React 19, NestJS 10 + Prisma/PostgreSQL, Supabase Auth/Realtime, Stripe Billing, Google Cloud Run, Vercel, GitHub Actions.
+TL;DR stack: Next.js 15 + React 19, NestJS 10, Firebase (Auth + Firestore + Cloud Storage), Stripe Billing, Google Cloud Run, Vercel, GitHub Actions.
 
 I built Vanta Lab to help creators generate image/video content from reusable node-based workflows, with built-in credit billing and production-grade deployment.
 
@@ -22,7 +22,7 @@ I built Vanta Lab to help creators generate image/video content from reusable no
 
 ## Product Capabilities
 
-- Supabase-authenticated studio experience (Google OAuth)
+- Firebase-authenticated studio experience (Google OAuth)
 - Node-based workflow canvas for text/image/video pipelines
 - Kie.ai-powered generation orchestration
 - Workspace spaces and Kling elements library management
@@ -40,17 +40,19 @@ Captured from the live deployment:
 ## Architecture Snapshot
 
 - `apps/web` - Next.js 15 + React 19 frontend
-- `apps/api` - NestJS 10 + Prisma backend
+- `apps/api` - NestJS 10 backend
 - `packages/types` - shared TypeScript package
-- Supabase - authentication and realtime sync
-- PostgreSQL - durable workflow and billing data
+- Firebase Auth - Google OAuth sign-in
+- Cloud Firestore - durable workflow, billing, and workspace data
+- Cloud Storage for Firebase - generated media + element library assets
+- Firestore listeners - realtime canvas sync
 - Hosting split - Vercel (web) + Google Cloud Run (api)
 
 ## Tech Stack
 
-- Frontend: Next.js 15, React 19, Tailwind CSS, Zustand, React Flow
-- Backend: NestJS 10, Prisma, PostgreSQL, Stripe SDK
-- Auth and Realtime: Supabase
+- Frontend: Next.js 15, React 19, Tailwind CSS, Zustand, React Flow, Firebase JS SDK
+- Backend: NestJS 10, firebase-admin, Stripe SDK
+- Auth, data, storage, realtime: Firebase (Auth + Firestore + Cloud Storage)
 - Cloud: Google Cloud (Cloud Run, Artifact Registry, Secret Manager)
 - CI/CD: GitHub Actions (`.github/workflows/ci.yml`, `.github/workflows/deploy.yml`)
 
@@ -112,19 +114,13 @@ Required GitHub secrets for `Deploy Dev API`:
 - Auth (choose one mode):
   - `DEV_WIF_PROVIDER` and `DEV_WIF_SERVICE_ACCOUNT`, or
   - `DEV_GCP_CREDENTIALS_JSON`
-- Migration DB connections:
-  - `DEV_DATABASE_URL`
-  - `DEV_DIRECT_URL`
 
 Required Google Secret Manager secrets consumed by Cloud Run deploy:
 
-- `DEV_DATABASE_URL`
-- `DEV_DIRECT_URL`
 - `DEV_JWT_SECRET`
-- `DEV_SUPABASE_URL`
-- `DEV_SUPABASE_ANON_KEY`
-- `DEV_SUPABASE_SERVICE_ROLE_KEY`
-- `DEV_REDIS_URL`
+- `DEV_FIREBASE_PROJECT_ID`
+- `DEV_FIREBASE_STORAGE_BUCKET`
+- `DEV_FIREBASE_SERVICE_ACCOUNT_JSON` (full JSON contents of the vanta-api service-account key)
 - `DEV_STRIPE_SECRET_KEY`
 - `DEV_STRIPE_WEBHOOK_SECRET`
 
@@ -138,6 +134,6 @@ Required Google Secret Manager secrets consumed by Cloud Run deploy:
 
 ## Resume-Ready Highlights
 
-- Built and launched a full-stack AI SaaS using Next.js, NestJS, Prisma, and Supabase with a node-based workflow studio and Stripe credit monetization.
+- Built and launched a full-stack AI SaaS using Next.js, NestJS, and Firebase (Auth + Firestore + Storage) with a node-based workflow studio and Stripe credit monetization.
 - Implemented asynchronous media orchestration with idempotent execution, SSE status streaming, polling fallback, and provider API-key load balancing.
 - Shipped a production split deployment (Vercel + Google Cloud Run) with CI/CD automation, migration handling, rollout runbooks, and webhook idempotency validation.

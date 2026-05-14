@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { getFirebaseAuth } from '@/lib/firebase/client';
 import { X } from 'lucide-react';
 
 interface AuthModalProps {
@@ -11,9 +12,7 @@ interface AuthModalProps {
 
 export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     const overlayRef = useRef<HTMLDivElement>(null);
-    const supabase = createClient();
 
-    // Close on Escape key
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
@@ -29,15 +28,21 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     }, [isOpen, onClose]);
 
     const handleSignIn = async () => {
-        await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo: `${window.location.origin}/auth/callback`,
-            },
+        const auth = getFirebaseAuth();
+        const provider = new GoogleAuthProvider();
+        const credential = await signInWithPopup(auth, provider);
+        const idToken = await credential.user.getIdToken();
+
+        // Exchange ID token for HttpOnly session cookie so SSR/middleware can verify.
+        await fetch('/api/auth/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
         });
+
+        window.location.assign('/dashboard');
     };
 
-    // Close on backdrop click
     const handleBackdropClick = (e: React.MouseEvent) => {
         if (e.target === overlayRef.current) onClose();
     };
@@ -51,11 +56,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-[fade-in_200ms_ease-out]"
         >
             <div className="relative w-full max-w-md mx-4 animate-[modal-enter_300ms_ease-out]">
-                {/* Glow effect behind modal */}
                 <div className="absolute -inset-1 rounded-3xl bg-gradient-to-b from-white/10 to-transparent blur-xl pointer-events-none" />
 
                 <div className="relative rounded-2xl border border-white/10 bg-[#0A0A0C]/95 backdrop-blur-xl p-8 shadow-2xl">
-                    {/* Close button */}
                     <button
                         onClick={onClose}
                         className="absolute top-4 right-4 rounded-lg p-1.5 text-white/40 transition hover:bg-white/5 hover:text-white"
@@ -63,13 +66,11 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                         <X className="h-4 w-4" />
                     </button>
 
-                    {/* Header */}
                     <div className="text-center mb-8 flex flex-col items-center">
                         <img src="/branding/vanta-lab.svg" alt="Vanta Lab" className="h-6 w-auto invert" />
                         <p className="mt-3 text-sm text-white/50">Sign in to access your creative studio</p>
                     </div>
 
-                    {/* Google Sign In */}
                     <button
                         onClick={handleSignIn}
                         className="group flex w-full items-center justify-center gap-3 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-[#050505] transition-all hover:bg-white/90 hover:scale-[1.02] active:scale-[0.98]"
@@ -83,14 +84,12 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                         <span>Continue with Google</span>
                     </button>
 
-                    {/* Divider */}
                     <div className="my-6 flex items-center gap-3">
                         <div className="flex-1 h-px bg-white/10" />
                         <span className="text-xs text-white/30 uppercase tracking-wider">or</span>
                         <div className="flex-1 h-px bg-white/10" />
                     </div>
 
-                    {/* Email input (visual teaser — disabled) */}
                     <div className="space-y-3">
                         <input
                             type="email"
@@ -106,7 +105,6 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                         </button>
                     </div>
 
-                    {/* Footer */}
                     <p className="mt-6 text-center text-xs text-white/30 leading-relaxed">
                         By continuing, you agree to our Terms of Service and Privacy Policy.
                     </p>

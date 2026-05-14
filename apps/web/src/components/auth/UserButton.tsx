@@ -1,10 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { createClient } from "@/lib/supabase/client";
+import {
+    GoogleAuthProvider,
+    onAuthStateChanged,
+    signInWithPopup,
+    signOut,
+    type User,
+} from "firebase/auth";
+import { getFirebaseAuth } from "@/lib/firebase/client";
 import { useRouter } from 'next/navigation';
 import { ChevronDown, LogIn, LogOut, User as UserIcon } from "lucide-react";
-import type { User } from "@supabase/supabase-js";
 
 export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?: boolean; variant?: 'sidebar' | 'topbar' }) {
     const router = useRouter();
@@ -12,30 +18,18 @@ export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?:
     const [loading, setLoading] = useState(true);
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
-    const supabase = createClient();
 
     useEffect(() => {
-        // Check active sessions and sets the user
-        const fetchUser = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            setUser(session?.user ?? null);
+        const auth = getFirebaseAuth();
+        const unsubscribe = onAuthStateChanged(auth, (next) => {
+            setUser(next);
             setLoading(false);
-        };
-
-        fetchUser();
-
-        // Listen for changes on auth state
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
         });
-
-        return () => subscription.unsubscribe();
-    }, [supabase.auth]);
+        return () => unsubscribe();
+    }, []);
 
     useEffect(() => {
-        if (variant !== 'topbar' || !menuOpen) {
-            return;
-        }
+        if (variant !== 'topbar' || !menuOpen) return;
 
         const handlePointerDown = (event: MouseEvent) => {
             if (!menuRef.current?.contains(event.target as Node)) {
@@ -44,9 +38,7 @@ export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?:
         };
 
         const handleEscape = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                setMenuOpen(false);
-            }
+            if (event.key === 'Escape') setMenuOpen(false);
         };
 
         window.addEventListener('mousedown', handlePointerDown);
@@ -59,29 +51,33 @@ export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?:
     }, [menuOpen, variant]);
 
     const handleSignIn = async () => {
-        await supabase.auth.signInWithOAuth({
-            provider: "google",
-            options: {
-                redirectTo: `${window.location.origin}/auth/callback`,
-            },
+        const auth = getFirebaseAuth();
+        const credential = await signInWithPopup(auth, new GoogleAuthProvider());
+        const idToken = await credential.user.getIdToken();
+        await fetch('/api/auth/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
         });
+        router.refresh();
     };
 
     const handleSignOut = async () => {
-        await supabase.auth.signOut();
+        await signOut(getFirebaseAuth());
+        await fetch('/api/auth/session', { method: 'DELETE' });
         setMenuOpen(false);
         router.push('/');
         router.refresh();
     };
 
-    const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+    const displayName = user?.displayName || user?.email?.split('@')[0] || 'User';
     const initial = displayName.trim().charAt(0).toUpperCase() || 'U';
+    const avatarUrl = user?.photoURL;
 
     if (loading) {
         if (variant === 'topbar') {
             return <div className="h-9 w-9 animate-pulse rounded-full bg-white/10" />;
         }
-
         return (
             <div className={`mb-3 rounded-xl border border-studio-700 bg-studio-850/90 p-2 ${isCollapsed ? 'flex justify-center' : ''}`}>
                 <div className="h-8 w-8 animate-pulse rounded-full bg-studio-700/70" />
@@ -102,7 +98,6 @@ export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?:
                 </button>
             );
         }
-
         return (
             <div className="mb-3">
                 <button
@@ -128,12 +123,8 @@ export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?:
                     aria-expanded={menuOpen}
                     aria-haspopup="menu"
                 >
-                    {user.user_metadata?.avatar_url ? (
-                        <img
-                            src={user.user_metadata.avatar_url}
-                            alt="Avatar"
-                            className="h-7 w-7 rounded-full object-cover"
-                        />
+                    {avatarUrl ? (
+                        <img src={avatarUrl} alt="Avatar" className="h-7 w-7 rounded-full object-cover" />
                     ) : (
                         <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-orange-600 text-xs">
                             {initial}
@@ -146,12 +137,8 @@ export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?:
                 {menuOpen ? (
                     <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#12161d]/95 p-2 shadow-[0_22px_50px_rgba(0,0,0,0.45)] backdrop-blur-md">
                         <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-3">
-                            {user.user_metadata?.avatar_url ? (
-                                <img
-                                    src={user.user_metadata.avatar_url}
-                                    alt="Avatar"
-                                    className="h-10 w-10 rounded-full object-cover"
-                                />
+                            {avatarUrl ? (
+                                <img src={avatarUrl} alt="Avatar" className="h-10 w-10 rounded-full object-cover" />
                             ) : (
                                 <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-orange-600 text-sm font-semibold text-white">
                                     {initial}
@@ -181,9 +168,9 @@ export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?:
     return (
         <div className={`mb-3 overflow-hidden rounded-xl border border-studio-700 bg-studio-850/90 ${isCollapsed ? 'p-1' : 'p-2'}`}>
             <div className={`flex items-center gap-2 ${isCollapsed ? 'justify-center' : ''}`}>
-                {user.user_metadata?.avatar_url ? (
+                {avatarUrl ? (
                     <img
-                        src={user.user_metadata.avatar_url}
+                        src={avatarUrl}
                         alt="Avatar"
                         className="h-8 w-8 shrink-0 rounded-full border border-studio-700 bg-studio-900 object-cover"
                     />
@@ -196,7 +183,7 @@ export function UserButton({ isCollapsed, variant = 'sidebar' }: { isCollapsed?:
                 {!isCollapsed && (
                     <div className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate text-xs font-semibold text-studio-cream">
-                            {user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'}
+                            {displayName}
                         </span>
                         <span className="truncate text-[10px] text-zinc-500">
                             {user.email}

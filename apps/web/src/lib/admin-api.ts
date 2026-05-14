@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/client';
+import { getFirebaseAuth } from '@/lib/firebase/client';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -20,17 +20,15 @@ const getErrorMessage = async (response: Response): Promise<string> => {
 };
 
 export async function adminApiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const supabase = createClient();
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
-
-  if (!session?.access_token) {
+  const auth = getFirebaseAuth();
+  const user = auth.currentUser;
+  if (!user) {
     throw new Error('Missing authenticated session');
   }
+  const accessToken = await user.getIdToken();
 
   const headers = new Headers(init.headers ?? {});
-  headers.set('authorization', `Bearer ${session.access_token}`);
+  headers.set('authorization', `Bearer ${accessToken}`);
 
   if (init.body && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
