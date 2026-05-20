@@ -28,23 +28,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Validate GCP auth configuration
-        run: |
-          if [[ -z "${{ secrets.GCP_CREDENTIALS_JSON }}" ]]; then
-            echo "::error::Missing GCP_CREDENTIALS_JSON secret. Set it to the JSON key of the github-deployer service account in vanta-lab-prod."
-            exit 1
-          fi
-          if [[ -z "${{ secrets.GCP_PROJECT_ID }}" ]]; then
-            echo "::error::Missing GCP_PROJECT_ID secret. Should be 'vanta-lab-prod'."
-            exit 1
-          fi
-          echo "Using service account JSON authentication for project ${{ secrets.GCP_PROJECT_ID }}."
 
       - id: auth
         uses: google-github-actions/auth@v2
