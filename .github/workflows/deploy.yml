@@ -14,22 +14,21 @@ concurrency:
 
 env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GCP_REGION: us-east1
-  API_SERVICE_NAME: persona-api
-  ARTIFACT_REGISTRY: us-east1-docker.pkg.dev
+  GCP_REGION: us-central1
+  API_SERVICE_NAME: vanta-api
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev
+  AR_REPO: vanta
 
 jobs:
   # ── Deploy API to Cloud Run ─────────────────────────────────────
   deploy-api:
     name: Deploy API → Cloud Run
     runs-on: ubuntu-latest
-    needs: [] # Add 'ci' job dependency if ci.yml is separate
+    needs: []
     permissions:
       contents: read
-      id-token: write # Required for Workload Identity Federation
+      id-token: write
     env:
-      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
-      WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
       GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
 
     steps:
@@ -37,30 +36,17 @@ jobs:
 
       - name: Validate GCP auth configuration
         run: |
-          if [[ -n "${{ secrets.WIF_PROVIDER }}" && -n "${{ secrets.WIF_SERVICE_ACCOUNT }}" ]]; then
-            echo "Using Workload Identity Federation authentication."
-            exit 0
+          if [[ -z "${{ secrets.GCP_CREDENTIALS_JSON }}" ]]; then
+            echo "::error::Missing GCP_CREDENTIALS_JSON secret. Set it to the JSON key of the github-deployer service account in vanta-lab-prod."
+            exit 1
           fi
-
-          if [[ -n "${{ secrets.GCP_CREDENTIALS_JSON }}" ]]; then
-            echo "Using service account JSON authentication."
-            exit 0
+          if [[ -z "${{ secrets.GCP_PROJECT_ID }}" ]]; then
+            echo "::error::Missing GCP_PROJECT_ID secret. Should be 'vanta-lab-prod'."
+            exit 1
           fi
+          echo "Using service account JSON authentication for project ${{ secrets.GCP_PROJECT_ID }}."
 
-          echo "::error::Missing GCP auth secrets. Configure either WIF_PROVIDER + WIF_SERVICE_ACCOUNT, or GCP_CREDENTIALS_JSON."
-          exit 1
-
-      # Authenticate with Google Cloud using Workload Identity Federation
-      # (more secure than service account keys — no long-lived credentials)
-      - id: auth-wif
-        if: ${{ env.WIF_PROVIDER != '' && env.WIF_SERVICE_ACCOUNT != '' }}
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-
-      - id: auth-json
-        if: ${{ !(env.WIF_PROVIDER != '' && env.WIF_SERVICE_ACCOUNT != '') && env.GCP_CREDENTIALS_JSON != '' }}
+      - id: auth
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
@@ -83,7 +69,7 @@ jobs:
       - name: Build & push Docker image
         working-directory: apps/api
         run: |
-          IMAGE="${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/persona/${{ env.API_SERVICE_NAME }}:${{ github.sha }}"
+          IMAGE="${{ env.ARTIFACT_REGISTRY }}/${{ env.GCP_PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.API_SERVICE_NAME }}:${{ github.sha }}"
           docker build -t $IMAGE .
           docker push $IMAGE
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
@@ -138,7 +124,7 @@ jobs:
       - name: Validate Vercel project configuration
         run: |
           if [[ -z "$VERCEL_ORG_ID" || -z "$VERCEL_PROJECT_ID" ]]; then
-            echo "::error::Missing VERCEL_ORG_ID or VERCEL_PROJECT_ID. Configure both to pin deployments to persona-web."
+            echo "::error::Missing VERCEL_ORG_ID or VERCEL_PROJECT_ID. Configure both to pin deployments to the Vercel project."
             exit 1
           fi
 
