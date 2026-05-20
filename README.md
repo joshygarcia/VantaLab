@@ -1,139 +1,213 @@
-# Vanta Lab - Production AI Workflow SaaS
+# Vanta Lab — Production AI Workflow SaaS
 
-TL;DR stack: Next.js 15 + React 19, NestJS 10, Firebase (Auth + Firestore + Cloud Storage), Stripe Billing, Google Cloud Run, Vercel, GitHub Actions.
+**A node-based studio for generating image and video content from reusable AI workflows, with credit-based billing and production-grade cloud deployment.**
 
-I built Vanta Lab to help creators generate image/video content from reusable node-based workflows, with built-in credit billing and production-grade deployment.
+- 🌐 **Live app:** https://www.vanta-lab.com
+- 🔌 **Live API:** https://vanta-api-883406816411.us-central1.run.app/api/v1/health
+- 📦 **Repo:** https://github.com/joshygarcia/VantaLab
 
-- Live app: `https://www.vanta-lab.com`
+---
 
-## What I Built (1-Minute Overview)
+## Project Overview
 
-- Built and launched a full-stack AI SaaS (Next.js + NestJS) from product UX to cloud deployment.
-- Shipped a React Flow studio that turns prompt/media logic into reusable nodes (prompt lists, image lists, multi-shot prompts, identity vault).
-- Implemented asynchronous generation orchestration with idempotent jobs, SSE status streaming, and polling fallback.
-- Added Stripe credit monetization with webhook-based credit settlement and replay-safe idempotency controls.
-- Deployed production on Vercel (web) and Google Cloud Run (api) with GitHub Actions CI/CD and documented rollout runbooks.
+Most creators juggle prompting, generation, and asset management across half a dozen disconnected tools. Vanta Lab unifies that workflow into a single visual studio where you compose reusable AI building blocks — text prompt nodes, image generators, video generators, agent nodes — on an infinite canvas, then run the whole pipeline with one click.
 
-## Impact
+Behind the scenes it's a real production SaaS: multi-tenant workspaces, Google sign-in, async job orchestration with idempotent execution, Stripe credit monetization with replay-safe webhook settlement, and a split deployment across Vercel (web) and Google Cloud Run (API).
 
-- Problem: creators often manage prompting, generation, and assets across disconnected tools.
-- Solution: Vanta Lab unifies that workflow into one studio with reusable creative building blocks and built-in billing.
-- Technical complexity: the product combines workspace-scoped auth, async job processing, realtime sync, and idempotent payment settlement across split deployments.
+---
 
-## Product Capabilities
+## Technologies Used
 
-- Firebase-authenticated studio experience (Google OAuth)
-- Node-based workflow canvas for text/image/video pipelines
-- Kie.ai-powered generation orchestration
-- Workspace spaces and Kling elements library management
-- Billing dashboard with credit purchases and transaction history
-- Admin tooling for KPIs, provider key management, and system logs
+**Frontend** ([apps/web](apps/web))
+- Next.js 15 + React 19 (App Router)
+- Tailwind CSS, GSAP animations
+- React Flow (node-based canvas editor)
+- Zustand (state management)
+- Firebase JS SDK (Auth + Firestore realtime listeners)
+- Stripe Elements (checkout)
 
-## Visual Proof
+**Backend** ([apps/api](apps/api))
+- NestJS 10 + TypeScript (30+ REST endpoints across auth/workflows/workspaces/billing/api-keys/analytics)
+- firebase-admin (auth verification + Firestore data + Cloud Storage)
+- Server-Sent Events for live job status; idempotency keys for safe retries
+- Stripe SDK with atomic webhook settlement
+- helmet, throttling, strict CORS, role-based admin guard
 
-Captured from the live deployment:
+**Data & infra**
+- Cloud Firestore — 7 collections with full CRUD, atomic transactions, custom indexes
+- Cloud Storage for Firebase — generated media + element library assets
+- Firebase Authentication — Google OAuth + HttpOnly session cookies
+- Google Cloud Run — containerized API behind an autoscaling URL
+- Google Artifact Registry + Cloud Build — image build & registry
+- Google Secret Manager — runtime secret injection (JWT, Firebase SA, Stripe)
+- Vercel — Next.js web hosting + edge middleware
+- GitHub Actions — CI typecheck/tests + automated deploys
 
-![Vanta Lab Pricing Section](docs/vanta-lab-pricing.png)
+**External**
+- Kie.ai — multi-model AI generation gateway (Kling 3.0, VEO, Grok Video, nano-banana, Seedream)
+- Stripe — payment intents + webhooks
 
-![Vanta Lab Preview GIF](docs/vanta-lab-preview.gif)
+---
+
+## How It Maps to the Assignment
+
+| Requirement | Implementation |
+|---|---|
+| **Frontend** (responsive, React, interactivity) | Next.js 15 / React 19 / Tailwind. React Flow canvas with drag-drop, dynamic routing per workspace, popup auth modal, GSAP-animated landing. |
+| **Backend** (≥2 API endpoints, routing, business logic) | NestJS 10 with **30+ endpoints**. Guards, DTO validation, throttling, SSE streams, Stripe webhook signature verification. |
+| **Database** (CRUD) | Cloud Firestore via firebase-admin. Collections: `users`, `workspaces`, `workflowJobs`, `apiKeys` (+ `usage` subcoll), `creditBalances` (+ `transactions` subcoll), `klingElementsLibrary`. Full create/read/update/delete with `runTransaction` for atomic billing settlement. |
+| **API integration** (fetch + error handling) | Web sends `Authorization: Bearer <Firebase-ID-token>` on every API call. Idempotency-Key headers prevent double-charges. SSE streaming with polling fallback. Structured Nest exceptions surface user-safe error messages. |
+| **Deployment** (public URL) | Web on Vercel → https://www.vanta-lab.com. API on Google Cloud Run → https://vanta-api-883406816411.us-central1.run.app. |
+| **Git & README** | Active commit history with descriptive messages; iterative PRs; this README. |
+
+---
 
 ## Architecture Snapshot
 
-- `apps/web` - Next.js 15 + React 19 frontend
-- `apps/api` - NestJS 10 backend
-- `packages/types` - shared TypeScript package
-- Firebase Auth - Google OAuth sign-in
-- Cloud Firestore - durable workflow, billing, and workspace data
-- Cloud Storage for Firebase - generated media + element library assets
-- Firestore listeners - realtime canvas sync
-- Hosting split - Vercel (web) + Google Cloud Run (api)
-
-## Tech Stack
-
-- Frontend: Next.js 15, React 19, Tailwind CSS, Zustand, React Flow, Firebase JS SDK
-- Backend: NestJS 10, firebase-admin, Stripe SDK
-- Auth, data, storage, realtime: Firebase (Auth + Firestore + Cloud Storage)
-- Cloud: Google Cloud (Cloud Run, Artifact Registry, Secret Manager)
-- CI/CD: GitHub Actions (`.github/workflows/ci.yml`, `.github/workflows/deploy.yml`)
-
-## Environment Split (Dev / Staging / Prod)
-
-Use dedicated resources per environment. Do not share prod DB/API with dev work.
-
-- API templates:
-  - Dev: `apps/api/.env.dev.example`
-  - Staging: `apps/api/.env.staging.example`
-  - Prod: `apps/api/.env.prod.example`
-- Web templates:
-  - Dev: `apps/web/.env.dev.example`
-  - Staging: `apps/web/.env.staging.example`
-  - Prod: `apps/web/.env.prod.example`
-
-Recommended mapping:
-
-- Dev: local web + branch-safe dev API + dev DB
-- Staging: deployed web + staging API + staging DB
-- Prod: deployed web + production API + production DB
-
-## Local + Cloud Dev Workflow (No Local DB / No Docker)
-
-This flow is designed for your current setup where the local machine cannot run Docker and cannot reach DB directly.
-
-1. Create a branch and push it.
-2. `Deploy Dev API` workflow auto-runs and deploys a branch-safe Cloud Run service.
-3. Copy `Base URL` from workflow logs.
-4. In local web env, set `NEXT_PUBLIC_API_URL=<base-url>/api/v1`.
-5. Run local web and test against cloud dev API:
-   - `npm run dev:web`
-
-One-command preview trigger:
-
-```bash
-git push origin <your-branch>
+```
+┌───────────────────────────────┐         ┌───────────────────────────────┐
+│  Vercel — Next.js 15 web      │  HTTPS  │  Cloud Run — NestJS 10 API    │
+│  https://www.vanta-lab.com    │ ──────► │  vanta-api-*.run.app/api/v1   │
+│  • React Flow studio          │  Bearer │  • JwtAuthGuard               │
+│  • Firebase Auth (popup)      │   IDtok │  • WorkspaceAccessGuard       │
+│  • Stripe Elements            │         │  • Stripe webhook (raw body)  │
+└───────────────────────────────┘         └──────┬────────────────────────┘
+        │                                        │
+        │ onSnapshot (canvasEvents)              │ admin SDK
+        ▼                                        ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│  Firebase: Auth · Firestore · Cloud Storage  (project: vanta-lab-prod)    │
+│  Secret Manager: JWT, Firebase SA JSON, Stripe keys, Frontend URL         │
+└───────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+                          Kie.ai (AI generation gateway)
 ```
 
-## GitHub Actions: Dev vs Prod
+---
 
-- Dev API preview: `.github/workflows/deploy-dev.yml`
-  - Trigger: push to any non-`main` branch
-  - Deploy target: `persona-api-dev-<branch>` Cloud Run service
-  - Secrets prefix: `DEV_*`
-- Dev API cleanup: `.github/workflows/cleanup-dev-services.yml`
-  - Trigger: branch delete, merged PR to `main`, or manual dispatch
-  - Action: deletes `persona-api-dev-<branch>` Cloud Run service when present
-  - Manual run: provide `branch` input to target a specific branch service
-- Production deploy: `.github/workflows/deploy.yml`
-  - Trigger: push to `main`
-  - Deploy targets: production API service + production Vercel web
-- CI checks: `.github/workflows/ci.yml`
-  - Trigger: PR to `main` and push to `main`
+## Installation / Setup
 
-Required GitHub secrets for `Deploy Dev API`:
+### Prerequisites
+- Node.js 20+, npm 10+
+- A Firebase project (Auth + Firestore + Storage enabled)
+- A Firebase Admin service-account JSON
 
-- `DEV_GCP_PROJECT_ID`
-- Auth (choose one mode):
-  - `DEV_WIF_PROVIDER` and `DEV_WIF_SERVICE_ACCOUNT`, or
-  - `DEV_GCP_CREDENTIALS_JSON`
+### Local dev
+```bash
+git clone https://github.com/joshygarcia/VantaLab.git
+cd VantaLab
+npm install
 
-Required Google Secret Manager secrets consumed by Cloud Run deploy:
+# Drop your service-account key at:
+#   apps/api/firebase-service-account.json   (gitignored)
 
-- `DEV_JWT_SECRET`
-- `DEV_FIREBASE_PROJECT_ID`
-- `DEV_FIREBASE_STORAGE_BUCKET`
-- `DEV_FIREBASE_SERVICE_ACCOUNT_JSON` (full JSON contents of the vanta-api service-account key)
-- `DEV_STRIPE_SECRET_KEY`
-- `DEV_STRIPE_WEBHOOK_SECRET`
+# Copy env templates
+cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env.local
+# Then fill in Firebase + Stripe values
 
-## Documentation
+# Run both apps
+npm run dev
+# → web at http://localhost:3000
+# → api at http://localhost:4000/api/v1/health
+```
 
-- Full app documentation: `docs/app-documentation.md`
-- Deployment execution plan: `docs/plans/2026-02-22-gcp-mcp-gcloud-execution-plan.md`
-- Dry-run runbook: `docs/plans/2026-02-22-t1-dry-run-runbook.md`
-- Staging runbook: `docs/plans/2026-02-22-t2-staging-runbook.md`
-- Deployment checklist: `docs/plans/2026-02-22-deployment-checklist.md`
+### Optional: Firebase emulator suite
+```bash
+npm run emulators --workspace apps/api
+# Auth :9099  ·  Firestore :8080  ·  Storage :9199  ·  UI :4001
+```
+
+### Tests
+```bash
+npm run test --workspace apps/api          # 28 Jest specs
+npx tsc -p apps/api/tsconfig.json --noEmit # API typecheck
+npx tsc -p apps/web/tsconfig.json --noEmit # web typecheck
+```
+
+---
+
+## My Process & What I Learned
+
+### The migration I'm most proud of
+
+Mid-project I migrated the entire data plane from **Supabase Auth + Realtime + Storage + Prisma/Postgres → Firebase Auth + Firestore + Cloud Storage** without losing the production-critical guarantees:
+
+- **Stripe idempotency preserved.** The old code relied on a Postgres `UNIQUE` constraint on `stripePaymentIntentId`. The new code uses `db.runTransaction()` + Firestore `.create()` on a document keyed by PaymentIntent ID — `ALREADY_EXISTS` errors get swallowed silently, exactly replicating the SQL behavior. No risk of double-crediting on webhook replays.
+- **Atomic credit settlement.** The old workflow spend used a serializable Postgres transaction with conditional `decrement`. Replaced with a Firestore `runTransaction` that reads current balance and writes only if sufficient — single round trip, no race condition.
+- **Prisma-shaped facade.** Rather than rewriting every service call site, I built a [`DbService`](apps/api/src/modules/database/db.service.ts) that exposes a Prisma-like API (`workspace.findUnique`, `workflowJob.create`, etc.) backed by Firestore admin SDK. ~1000 lines once, then every service only needed an import swap.
+- **Realtime canvas sync re-platformed.** Supabase channel broadcasts → Firestore `onSnapshot` listeners on an ephemeral `workspaces/{id}/canvasEvents` subcollection with TTL cleanup and self-echo filtering.
+- **Auth re-platformed.** Supabase OAuth + JWT → Firebase Google popup + HttpOnly session cookie (created server-side via `admin.auth().createSessionCookie()`) + ID-token bearer for API calls.
+- **Zero downtime to ship.** Existing data was disposable (test only), but the rollout still used staged verification: smoke-test Firestore writes, smoke-test Storage uploads, then re-deploy and cut traffic.
+
+### Things I learned the hard way
+
+- **PowerShell 5.1 writes UTF-16 with BOM by default.** I created my Secret Manager secrets via PowerShell pipes and `FIREBASE_PROJECT_ID` ended up as `﻿vanta-lab-prod`. Every `verifyIdToken()` failed with 401 because the audience claim mismatched. Always pipe via Bash or `Out-File -Encoding utf8NoBOM`.
+- **Cloud Run caches secret values at revision creation.** Updating a secret version is silent until you force a new revision. I now bake an env-var bump (`FORCE_RELOAD=<timestamp>`) into deploys.
+- **Vercel rewrites are deceptive.** Setting `NEXT_PUBLIC_API_URL` to the web origin loops requests back to Next.js and 404s. The actual fix is pointing it at the Cloud Run URL with the `/api/v1` suffix included.
+- **Firestore composite indexes need to be declared up front** (`firestore.indexes.json`), or your first sorted query in prod throws and gives you a 1-click "create index" URL — fine for dev, embarrassing in front of users.
+
+### AI tools used to build this
+
+- **Claude (Claude Code in the terminal)** — paired with me for the entire Supabase→Firebase migration: exhaustively mapped every Supabase touchpoint, drafted the `DbService` Firestore facade, rewrote the auth guard, regenerated CI workflows and `.env.example` files across 8 files, and ran the actual GCP/Firebase CLI commands (project creation, service account, IAM bindings, Cloud Build, Cloud Run deploy). Also wrote big chunks of this README.
+- **GitHub Copilot** — inline completions across the React Flow node implementations and DTO validators.
+- **ChatGPT** — sanity-checking the Firestore data model (Stripe idempotency strategy, composite index design) before committing to the rewrite.
+
+The AI didn't write the app *for* me — it accelerated the parts that were already clear, surfaced things I'd missed (BOM in secrets, the Cloud Run secret-caching gotcha above), and let me execute a multi-day migration in a single focused session. Picking when to delegate to it and when to drive manually was its own skill.
+
+---
+
+## Repository Layout
+
+```
+apps/
+  api/                         NestJS backend
+    src/modules/
+      auth/                    Firebase ID-token guard + role resolution
+      billing/                 Stripe payment intents + idempotent webhook settlement
+      database/                Firestore-backed DbService (Prisma-shaped facade)
+      firebase/                Admin SDK bootstrap (Firestore + Auth + Storage)
+      workflows/               Async job queue, Kie.ai provider, SSE streaming
+      workspaces/              Canvas state, custom spaces, element library
+      analytics/, api-keys/    Admin tooling
+  web/                         Next.js 15 frontend
+    src/
+      app/                     App Router pages + /api routes
+      components/              Studio UI, canvas nodes, admin dashboards
+      hooks/useRealtimeSync.ts Firestore onSnapshot canvas broadcasts
+      lib/firebase/            Browser + admin Firebase helpers
+packages/types/                Shared TypeScript types
+firebase.json, firestore.*     Firebase emulator + rules + indexes
+.github/workflows/             CI + dev/prod deploy automation
+```
+
+---
+
+## Deployment
+
+| Surface | Where | Trigger |
+|---|---|---|
+| Web | Vercel (`vanta-lab` project) | Push to `main` → auto-deploy |
+| API | Google Cloud Run (`vanta-api` in `vanta-lab-prod`, region `us-central1`) | `.github/workflows/deploy.yml` on push to `main` |
+| Firestore rules + indexes | Firebase (`vanta-lab-prod`) | `firebase deploy --only firestore` |
+| Storage rules | Firebase (`vanta-lab-prod`) | `firebase deploy --only storage` |
+
+Runtime config lives in Google Secret Manager (referenced by [deploy.yml](.github/workflows/deploy.yml)):
+`JWT_SECRET`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `FRONTEND_URL`.
+
+---
 
 ## Resume-Ready Highlights
 
-- Built and launched a full-stack AI SaaS using Next.js, NestJS, and Firebase (Auth + Firestore + Storage) with a node-based workflow studio and Stripe credit monetization.
-- Implemented asynchronous media orchestration with idempotent execution, SSE status streaming, polling fallback, and provider API-key load balancing.
-- Shipped a production split deployment (Vercel + Google Cloud Run) with CI/CD automation, migration handling, rollout runbooks, and webhook idempotency validation.
+- Built and shipped a production AI SaaS (Next.js + NestJS) with a visual node-based workflow studio, Firebase Auth + Firestore + Storage, and Stripe credit monetization.
+- Implemented asynchronous AI generation orchestration with idempotent execution, SSE status streaming, polling fallback, and multi-key provider load balancing.
+- Designed Stripe webhook settlement that survives replays via atomic Firestore transactions keyed on PaymentIntent ID.
+- Delivered a split production deployment (Vercel + Google Cloud Run) with GitHub Actions CI/CD, Secret Manager runtime config, and documented rollout runbooks.
+- Migrated the entire data plane (Supabase + Prisma/Postgres → Firebase Auth + Firestore + Cloud Storage) end-to-end without losing idempotency or auth guarantees.
+
+---
+
+## License & Acknowledgments
+
+Built solo as my Immersive Engineering Lab capstone. AI generation powered by [Kie.ai](https://kie.ai). UI inspiration credit to React Flow's example gallery.
